@@ -4,8 +4,8 @@
 src/keys/*
 !src/keys/.gitkeep
 
-# Your personal CV data (use cv_data_example.py as template)
-src/services/cv_data.py
+# Your personal CV data is intentionally included as a real-world example
+# See cv_data_example.py for a blank template
 
 # Session data & user data (NEVER commit these)
 data/
