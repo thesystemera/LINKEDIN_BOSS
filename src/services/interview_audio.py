@@ -27,7 +27,7 @@ def select_audio_device():
     """Interactive device selection. Returns device ID or None for default."""
     devices = list_audio_devices()
     if not devices:
-        print("No input devices found!")
+        custom_print("ERROR", "No input devices found!")
         return None
 
     print("\nAvailable microphones:")

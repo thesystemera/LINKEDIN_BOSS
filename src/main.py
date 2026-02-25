@@ -34,7 +34,7 @@ def setup():
 
     print_success("Setup complete!")
     console.print("\nNext steps:")
-    console.print("1. Add your Gemini API key to: server/keys/GEMINI_API_KEY.txt")
+    console.print("1. Add your Gemini API key to: .env (see .env.example)")
     console.print("2. Run: python src/main.py run")
 
 
@@ -66,8 +66,7 @@ def run(max_apps: int = None):
         print_error("Gemini API key not found!")
         console.print("\n[yellow]You need to add your Gemini API key:[/yellow]")
         console.print("1. Get your key from: https://aistudio.google.com/app/apikey")
-        console.print("2. Create file: server/keys/gemini_key.txt")
-        console.print("3. Paste your API key in that file")
+        console.print("2. Add to .env: GEMINI_API_KEY=your_key_here")
         return
 
     session_scraped = 0

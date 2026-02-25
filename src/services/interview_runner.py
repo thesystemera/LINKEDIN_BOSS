@@ -67,30 +67,29 @@ def run_audio(job_data: dict | None = None):
         from faster_whisper import WhisperModel
         import numpy as np
     except ImportError as e:
-        print(f"Missing dependency: {e}")
-        print("Run: pip install faster-whisper")
+        custom_print("ERROR", f"Missing dependency: {e}")
+        custom_print("ERROR", "Run: pip install faster-whisper")
         return
 
     from src.config import settings
     from src.services.interview_audio import get_audio_capture, select_audio_device
 
     # Load Whisper
-    print(f"Loading Whisper ({settings.INTERVIEW_WHISPER_MODEL})...")
+    custom_print("INFO", f"Loading Whisper ({settings.INTERVIEW_WHISPER_MODEL})...")
     try:
         whisper = WhisperModel(
             settings.INTERVIEW_WHISPER_MODEL,
             device=settings.INTERVIEW_WHISPER_DEVICE,
             compute_type=settings.INTERVIEW_WHISPER_COMPUTE_TYPE
         )
-        print("Whisper loaded on GPU!")
+        custom_print("SUCCESS", "Whisper loaded on GPU!")
     except Exception as e:
-        print(f"GPU failed ({e}), trying CPU...")
+        custom_print("WARNING", f"GPU failed ({e}), trying CPU...")
         whisper = WhisperModel(settings.INTERVIEW_WHISPER_MODEL, device="cpu", compute_type="int8")
-        print("Whisper loaded on CPU")
+        custom_print("INFO", "Whisper loaded on CPU")
 
-    print(f"\nModels:")
-    print(f"  Sentinel: {settings.INTERVIEW_SENTINEL_MODEL}")
-    print(f"  Advisor:  {settings.INTERVIEW_ADVISOR_MODEL}")
+    custom_print("INFO", f"Sentinel: {settings.INTERVIEW_SENTINEL_MODEL}")
+    custom_print("INFO", f"Advisor:  {settings.INTERVIEW_ADVISOR_MODEL}")
 
     assistant = InterviewAssistant(job_data)
     display = InterviewDisplay()
@@ -188,13 +187,12 @@ def run_audio(job_data: dict | None = None):
     device_id = select_audio_device()
 
     # Start audio capture
-    print("\nStarting audio capture...")
+    custom_print("INFO", "Starting audio capture...")
     audio_capture = get_audio_capture(on_utterance, on_level, device_id)
     audio_capture.start()
 
     display.log("System ready - listening for speech", "system")
-    print("\nReady! Watch the conversation log for what's happening.")
-    print("Level meter shows audio, log shows transcriptions + AI.\n")
+    custom_print("SUCCESS", "Ready! Watch the conversation log for what's happening.")
 
     # Run display (blocks)
     display.start()
