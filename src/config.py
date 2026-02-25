@@ -1,7 +1,11 @@
 """
 Configuration settings for LinkedIn Auto-Apply system.
 """
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()  # loads .env from project root
 
 class Settings:
     GEMINI_MODEL_FORMS = "gemini-2.5-flash"      # Fast model for form fields
@@ -124,6 +128,12 @@ class Settings:
 
     @staticmethod
     def load_api_key_from_file(key_name: str) -> str | None:
+        # 1. Check .env / environment variable first (GEMINI_KEY or GEMINI_API_KEY)
+        env_var = key_name.upper()  # gemini_key -> GEMINI_KEY
+        value = os.environ.get(env_var) or os.environ.get("GEMINI_API_KEY")
+        if value:
+            return value
+        # 2. Fall back to legacy txt file
         key_file = Settings.KEYS_DIR / f"{key_name}.txt"
         if key_file.exists():
             with open(key_file, 'r') as f:

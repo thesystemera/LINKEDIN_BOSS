@@ -1,6 +1,7 @@
 # LinkedIn Auto-Apply .gitignore
 
 # API Keys (CRITICAL - never commit!)
+.env
 src/keys/*
 !src/keys/.gitkeep
 
