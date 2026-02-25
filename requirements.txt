@@ -1,5 +1,4 @@
-nest-asyncio
-# LinkedIn Auto-Apply Dependencies
+# LinkedIn Boss - Core Dependencies
 
 # Browser automation
 playwright==1.41.0
@@ -16,5 +15,10 @@ python-dotenv==1.0.0
 # Beautiful CLI output
 rich==13.7.0
 
-# Async support (built-in for Python 3.11+)
-asyncio
+# Async nesting (allows asyncio.run() from sync Playwright context)
+nest-asyncio==1.6.0
+
+# ─── Optional: Interview Assistant (audio mode only) ───────────────────────
+# pip install faster-whisper sounddevice
+# faster-whisper    # Whisper transcription
+# sounddevice       # Microphone capture
