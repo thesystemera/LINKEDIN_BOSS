@@ -1,0 +1,20 @@
+nest-asyncio
+# LinkedIn Auto-Apply Dependencies
+
+# Browser automation
+playwright==1.41.0
+
+# Gemini AI
+google-genai==0.2.0
+
+# Data validation
+pydantic==2.5.0
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Beautiful CLI output
+rich==13.7.0
+
+# Async support (built-in for Python 3.11+)
+asyncio

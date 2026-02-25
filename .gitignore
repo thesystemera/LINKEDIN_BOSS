@@ -1,0 +1,71 @@
+# LinkedIn Auto-Apply .gitignore
+
+# API Keys (CRITICAL - never commit!)
+src/keys/*
+!src/keys/.gitkeep
+
+# Your personal CV data (use cv_data_example.py as template)
+src/services/cv_data.py
+
+# Session data & user data (NEVER commit these)
+data/
+Data/
+*.json
+
+# Personal files
+steve_nudge_message.txt
+nul
+
+# Page structure dumps (LinkedIn HTML - regenerate as needed)
+src/page_structure/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Playwright
+.playwright/
