@@ -62,7 +62,7 @@ def report(result: dict):
         print_warning(f"Submitted but no confirmation detected ({result.get('channel')})")
     elif s in ("manual_review_needed", "external"):
         print_warning(f"Needs manual review: {e}")
-    elif s in ("already_applied", "expired", "skipped", "skipped_by_user", "dry_run"):
+    elif s in ("already_applied", "expired", "skipped", "skipped_by_user", "dry_run", "deferred"):
         custom_print("INFO", f"{s}: {e or ''}")
     else:
         print_error(f"Failed ({s}): {e}")
@@ -147,12 +147,12 @@ def run(max_apps: int = None):
                             continue
                         result = apply_job(page, job, li, ext)
                         session_done.add(job["id"])
-                        if not settings.DRY_RUN and result["status"] != "dry_run":
+                        if not settings.DRY_RUN and result["status"] not in ("dry_run", "deferred"):
                             db.insert_application(job["id"], result)
                         report(result)
                         if result["status"] in APPLIED_STATUSES:
                             applied += 1
-                        if idx < len(batch) - 1 and result["status"] not in ("already_applied", "expired", "skipped"):
+                        if idx < len(batch) - 1 and result["status"] not in ("already_applied", "expired", "skipped", "deferred"):
                             delay = random.uniform(settings.MIN_DELAY_BETWEEN_APPS, settings.MAX_DELAY_BETWEEN_APPS)
                             if result["status"] not in APPLIED_STATUSES:
                                 delay /= 3
@@ -237,7 +237,7 @@ def apply_single(job_input: str):
                     db.insert_evaluation(job["id"], {"apply": True, "confidence": 100, "reason": "Manually selected"})
                 result = ext.apply(page, job).as_dict()
             # a dry run never records results (a failed dry run would otherwise take the job out of the queue)
-            if not settings.DRY_RUN and result["status"] != "dry_run":
+            if not settings.DRY_RUN and result["status"] not in ("dry_run", "deferred"):
                 db.insert_application(job["id"], result)
             report(result)
         except SessionExpired as e:
@@ -268,7 +268,7 @@ def run_retry(statuses=("manual_review_needed", "error"), title="Retry Failed / 
                 result = apply_job(page, job, li, ext)
                 if result["status"] in ("no_easy_apply",):
                     result["status"] = "expired"
-                if not settings.DRY_RUN and result["status"] != "dry_run":
+                if not settings.DRY_RUN and result["status"] not in ("dry_run", "deferred"):
                     db.insert_application(job["id"], result)
                 report(result)
                 if result["status"] in APPLIED_STATUSES:

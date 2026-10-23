@@ -196,6 +196,13 @@ with sync_playwright() as p:
     state = pg.evaluate("() => [...document.querySelectorAll('input[type=checkbox]')].map(r => r.checked)")
     check("unnamed checkbox group survives re-render (AU + NZ ticked, verified)", ok_cb and state == [True, True, False, False, False], f"ok={ok_cb} checked={state}")
 
+    # LinkedIn's own daily Easy Apply cap (live text, Oct 2026): recognised, not treated as a broken form
+    pg.set_content("""<a data-view-name="job-apply-button" aria-label="Easy Apply to this job" href="#">Easy Apply</a>
+      <dialog open data-testid="dialog"><h2>You reached today’s Easy Apply limit</h2><p>Great effort applying today. We limit Easy Apply submissions to help ensure each application gets the right attention. Save this job and continue applying tomorrow.</p><button>Go</button></dialog>""")
+    li_lim = LinkedInApplier(FormRunner())
+    st_lim = li_lim.ui_state(pg)
+    check("Easy Apply daily-limit dialog recognised", any(re.search(r"reached today.{0,3}s easy apply limit", t, re.I) for t in st_lim["texts"]) and not st_lim["ready"], str(st_lim["texts"])[:200])
+
     # LinkedIn "Share your profile?" before an external application: Continue is a link (live, Oct 2026)
     pg.set_content("""<button aria-label="Apply on company website">Apply</button>
       <dialog open data-testid="dialog" aria-labelledby="dialog-header"><header id="dialog-header"><h2>Share your profile?</h2></header>

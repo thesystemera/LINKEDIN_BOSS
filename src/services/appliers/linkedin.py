@@ -74,6 +74,7 @@ class LinkedInApplier:
     def __init__(self, runner: FormRunner = None, external=None):
         self.runner = runner or FormRunner()
         self.external = external
+        self.easy_limit_reached = False     # LinkedIn's own daily Easy Apply cap; Easy Apply jobs wait for tomorrow
 
     def job_state(self, page: Page) -> Dict:
         try:
@@ -170,6 +171,8 @@ class LinkedInApplier:
             return ApplyResult("already_applied", "LinkedIn shows this job as already applied", 0)
         if state.get("closed"):
             return ApplyResult("expired", "No longer accepting applications", 0)
+        if state.get("easy") and self.easy_limit_reached:
+            return ApplyResult("deferred", "LinkedIn's Easy Apply limit reached today - left in the queue for tomorrow", 0)
         read = random.uniform(settings.JOB_READ_TIME_MIN, settings.JOB_READ_TIME_MAX)
         custom_print("APPLYING", f"Reading job for {read:.0f}s...")
         end = time.time() + read
@@ -234,6 +237,11 @@ class LinkedInApplier:
                 except Exception:
                     pass
             st = self._wait_apply_ui(page, 15)
+        if st and any(re.search(r"reached today.{0,3}s easy apply limit", t, re.I) for t in st.get("texts", [])):
+            self.easy_limit_reached = True
+            custom_print("WARNING", "LinkedIn's daily Easy Apply limit reached - Easy Apply jobs wait for tomorrow, external applications continue")
+            self.close_modal(page)
+            return ApplyResult("deferred", "LinkedIn's Easy Apply limit reached today - left in the queue for tomorrow", 0)
         if not st or not st.get("ready"):
             save_debug(page, job, f"Easy Apply UI did not appear: {st}")
             return ApplyResult("error", f"Easy Apply UI did not appear (url={page.url[:80]})", 0)
