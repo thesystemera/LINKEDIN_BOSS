@@ -159,8 +159,8 @@ class Settings:
     EXTERNAL_AUTO_SUBMIT = {
         "greenhouse": True, "lever": True, "ashby": True, "workable": True, "smartrecruiters": True,
         "jobadder": True, "recruitee": True, "teamtailor": True, "breezy": True, "bamboohr": True,
-        "workday": False, "seek": False, "pageup": False, "icims": False, "successfactors": False,
-        "taleo": False, "jobvite": False, "generic": False,
+        "workday": True, "seek": True, "pageup": True, "icims": True, "successfactors": True,
+        "taleo": True, "jobvite": True, "generic": True,
     }
     VISION_ASSIST = True                # screenshot + Gemini picks the next step when the DOM loop gets stuck
     EEO_POLICY = "decline"              # voluntary diversity questions: "decline" picks prefer-not-to-say options
