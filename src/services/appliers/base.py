@@ -13,7 +13,7 @@ from rich import box
 from src.config import settings
 from src.services.ai_service import AIService
 from src.services.form_engine.engine import FormEngine, Snapshot, Field
-from src.services.form_engine.answerer import Answerer, Answer
+from src.services.form_engine.answerer import Answerer, Answer, PROFILE_ENTRY_RE
 from src.utils.logger import custom_print, console
 
 RISKY_BTN_RE = re.compile(r"submit|send|finish|complete|confirm|apply|discard|delete|withdraw|cancel|remove|sign ?out|log ?out|decline|google|microsoft|apple|facebook|github", re.I)
@@ -174,6 +174,9 @@ class FormRunner:
                         blockers.append(f)
             if blockers:
                 names = "; ".join(b.text[:70] for b in blockers[:4])
+                for b in blockers:
+                    if b.kind != "file" and not PROFILE_ENTRY_RE.search(f"{b.raw.get('section') or ''} {b.text}"):
+                        self.answerer.bank.record_unanswered(b.text, b.kind, [o for o in (b.options or []) if o != b.raw.get("placeholderOption")])
                 if not self.human_gate(f"Required field(s) need you: {names}"):
                     return ApplyResult("manual_review_needed", f"Needs human input: {names}")
                 for b in blockers:

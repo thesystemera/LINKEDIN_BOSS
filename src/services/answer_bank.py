@@ -53,7 +53,7 @@ class AnswerBank:
         qk, fam = question_key(question), kind_family(kind)
         with self._conn() as c:
             rows = c.execute(
-                "SELECT * FROM answer_bank WHERE qkey=? AND family=? AND (region=? OR region='') AND status NOT IN ('rejected', 'failed') "
+                "SELECT * FROM answer_bank WHERE qkey=? AND family=? AND (region=? OR region='') AND status NOT IN ('rejected', 'failed', 'unanswered') "
                 "ORDER BY CASE WHEN region=? THEN 0 ELSE 1 END, CASE status WHEN 'approved' THEN 0 ELSE 1 END",
                 (qk, fam, region, region)).fetchall()
         for r in rows:
@@ -88,6 +88,20 @@ class AnswerBank:
                 c.execute("INSERT INTO answer_bank (qkey, question, family, scope, region, options_json, answer, status, source, created_at, updated_at) "
                           "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                           (qk, question[:600], fam, scope, reg, json.dumps(options[:60]), str(answer), status, source, now, now))
+
+    def record_unanswered(self, question: str, kind: str, options: List[str]):
+        """A required question no data could answer (the job was skipped): queued for the candidate to answer once
+        in `python src/main.py answers`; the answer is then reused everywhere and `retry` re-applies."""
+        if not (question or "").strip():
+            return
+        qk, fam = question_key(question), kind_family(kind)
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._conn() as c:
+            if c.execute("SELECT 1 FROM answer_bank WHERE qkey=? AND family=?", (qk, fam)).fetchone():
+                return
+            c.execute("INSERT INTO answer_bank (qkey, question, family, scope, region, options_json, answer, status, source, created_at, updated_at) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (qk, question[:600], fam, "global", "", json.dumps((options or [])[:60]), "", "unanswered", "skipped job", now, now))
 
     def demote(self, question: str, kind: str, region: str):
         qk, fam = question_key(question), kind_family(kind)

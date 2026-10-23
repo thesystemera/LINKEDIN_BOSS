@@ -305,6 +305,19 @@ def stats():
 def answers_review():
     init_db()
     bank = AnswerBank(settings.DB_PATH)
+    open_qs = bank.all("unanswered")
+    if open_qs:
+        print_header(f"Questions that stopped applications ({len(open_qs)})")
+        console.print("Type the answer once (it is reused on every form, and `retry` re-applies). Enter = skip, q = quit\n")
+        for i, r in enumerate(open_qs, 1):
+            console.print(f"[cyan][{i}/{len(open_qs)}][/cyan] [bold]{r['question'][:300]}[/bold]  [dim]{r['family']}[/dim]")
+            if r.get("options_json") and r["options_json"] not in ("[]", "null"):
+                console.print(f"   options: {r['options_json'][:300]}")
+            new = input("   answer: ").strip()
+            if new.lower() == "q":
+                break
+            if new:
+                bank.set_status(r["id"], "approved", new)
     rows = bank.pending()
     print_header(f"Answer bank review ({len(rows)} unreviewed)")
     if not rows:
