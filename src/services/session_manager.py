@@ -1,78 +1,51 @@
-import json
-import os
 import time
-from pathlib import Path
 from playwright.sync_api import sync_playwright, BrowserContext, Page
 
+from src.config import settings
+from src.services.browser import launch_context, main_page, save_cookies, linkedin_logged_in
 from src.utils.logger import custom_print
 
+
 class SessionManager:
-    def __init__(self, session_path: str):
-        self.session_path = session_path
+    def __init__(self, session_path: str = None):
+        self.session_path = session_path or settings.SESSION_PATH
 
     def session_exists(self) -> bool:
-        return os.path.exists(self.session_path)
+        profile = settings.PROFILE_DIR
+        has_profile = profile.exists() and any(profile.iterdir())
+        from pathlib import Path
+        return has_profile or Path(self.session_path).exists()
 
     def save_session(self) -> None:
         custom_print("SESSION", "=" * 60)
-        custom_print("SESSION", "LINKEDIN SESSION SETUP")
+        custom_print("SESSION", "LINKEDIN + APPLICATION SITES LOGIN")
         custom_print("SESSION", "=" * 60)
-
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            context = browser.new_context()
-            page = context.new_page()
-
-            page.goto("https://www.linkedin.com/login")
-
-            custom_print("SESSION", "Please login to LinkedIn manually in the browser window")
-            custom_print("SESSION", "Complete any 2FA if prompted")
-            custom_print("SESSION", "Wait until you can see your LinkedIn feed")
-            custom_print("SESSION", "=" * 60)
-            input("\nPress ENTER after you've logged in and can see your feed...")
-
-            page.wait_for_timeout(2000)
-
-            try:
-                if "feed" not in page.url and "mynetwork" not in page.url:
-                    custom_print("WARNING", "Warning: You might not be logged in properly.")
-                    custom_print("WARNING", f"Current URL: {page.url}")
-                    proceed = input("Continue anyway? (y/n): ")
-                    if proceed.lower() != 'y':
-                        browser.close()
-                        return
-            except Exception as e:
-                custom_print("WARNING", f"Could not verify login: {e}")
-
-            cookies = context.cookies()
-            Path(self.session_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(self.session_path, 'w') as f:
-                json.dump(cookies, f, indent=2)
-
-            custom_print("SUCCESS", f"Session saved to {self.session_path}")
-            custom_print("INFO", "You can now run: python src/main.py run")
-            browser.close()
+            ctx = launch_context(p)
+            page = main_page(ctx)
+            page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+            custom_print("SESSION", "Log in to LinkedIn in the browser window (complete any 2FA).")
+            custom_print("SESSION", "Optional: in new tabs, also sign in to SEEK / Workday portals you use - the profile keeps those logins.")
+            input("\nPress ENTER once you can see your LinkedIn feed...")
+            page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
+            time.sleep(3)
+            if not linkedin_logged_in(page):
+                custom_print("WARNING", f"Login not detected (url: {page.url}). The profile is saved anyway; re-run setup if runs fail.")
+            else:
+                custom_print("SUCCESS", "LinkedIn login detected")
+            save_cookies(ctx)
+            ctx.close()
+        custom_print("SUCCESS", f"Browser profile saved to {settings.PROFILE_DIR}")
 
     def load_session(self, context: BrowserContext):
-        if not os.path.exists(self.session_path):
-            raise FileNotFoundError(
-                f"Session file not found: {self.session_path}\n"
-                "Run 'python src/main.py setup' first to save your session"
-            )
-
-        with open(self.session_path, 'r') as f:
-            cookies = json.load(f)
-        context.add_cookies(cookies)
-        custom_print("SUCCESS", f"Loaded session from {self.session_path}")
+        return None
 
     def recycle_page(self, context: BrowserContext, old_page: Page) -> Page:
-
-        custom_print("INFO", "♻️  Recycling browser page to prevent memory crash...")
+        custom_print("INFO", "♻️  Recycling browser page")
+        new_page = context.new_page()
         try:
             old_page.close()
         except Exception:
             pass
-
-        new_page = context.new_page()
         time.sleep(1)
         return new_page

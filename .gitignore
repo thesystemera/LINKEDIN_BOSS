@@ -15,6 +15,15 @@ Data/
 
 # Personal files
 steve_nudge_message.txt
+arju_reply.txt
+cv_extracted.txt
+job_4050.txt
+pepperstone_results.txt
+check_email.py
+check_pepperstone.py
+check_stats.py
+extract_cv.py
+get_job_desc.py
 nul
 
 # Page structure dumps (LinkedIn HTML - regenerate as needed)
@@ -70,3 +79,6 @@ logs/
 
 # Playwright
 .playwright/
+
+# v1 backup made during the v2 rebuild (contains a copy of src/keys)
+_backup_v1_20261022/

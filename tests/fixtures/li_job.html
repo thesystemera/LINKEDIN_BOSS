@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Forward Deployed Engineer | Acme AI | LinkedIn</title>
+<style>#interop{position:absolute;top:0;left:0;width:100vw;height:100vh;opacity:0;z-index:-1;border:0}#interop.on{opacity:1;z-index:10}</style></head>
+<body><nav><a class="global-nav__me" href="/in/me">Me</a><input role="combobox" aria-label="Search" placeholder="Search"></nav>
+<main data-view-name="job-detail-page"><h1>Forward Deployed Engineer</h1><a href="/company/acme/">Acme AI</a><p>Auckland, New Zealand · 2 days ago</p><p>Hybrid Full-time NZ$160K/yr - NZ$200K/yr</p>
+<a id="ea" href="#" aria-label="Easy Apply to this job" data-view-name="job-apply-button">Easy Apply</a>
+<h2>About the job</h2><div data-testid="expandable-text-box">We are hiring a Forward Deployed Engineer to build LLM systems with customers. Python, FastAPI, React, cloud deployment. You will work directly with enterprise customers to deploy AI agents, build integrations, and own delivery end to end. 5+ years of software engineering. Based in Auckland, hybrid.</div></main>
+<iframe id="interop" data-testid="interop-iframe" srcdoc='
+<html><body>
+<div id="dlg" role="dialog" aria-labelledby="hdr" style="display:none;width:700px">
+ <h2 id="hdr">Apply to Acme AI</h2><div role="progressbar" aria-valuenow="0" id="pb"></div>
+ <div class="step" id="s1"><h3>Contact info</h3>
+  <div data-test-form-element><label for="fn">First name</label><input id="fn" value="Simon" required></div>
+  <div data-test-form-element><label for="cc">Phone country code</label><select id="cc"><option>Select an option</option><option>Australia (+61)</option><option>New Zealand (+64)</option></select></div>
+  <div data-test-form-element><label for="ph">Mobile phone number</label><input id="ph" required><div class="err"></div></div>
+  <div data-test-form-element><label for="em">Email address</label><select id="em" required><option>Select an option</option><option selected>simon@realityvirtual.co</option></select></div>
+ </div>
+ <div class="step" id="s2" style="display:none"><h3>Resume</h3>
+  <div class="jobs-document-upload-redesign-card__container jobs-document-upload-redesign-card__container--selected" aria-label="Selected"><h3>Simon_CV.pdf</h3><input id="rc" type="radio"><label for="rc"><span class="a11y-text">Deselect resume Simon_CV.pdf</span></label></div>
+  <div data-test-form-element><label for="ur">Upload resume</label><input id="ur" type="file" style="display:none"><span>DOC, DOCX, PDF (2 MB)</span></div>
+  <div data-test-form-element><span>Cover letter</span><label for="ucl" class="artdeco-button">Upload cover letter</label><input id="ucl" type="file" required style="display:none"><div class="err"></div></div>
+ </div>
+ <div class="step" id="s3" style="display:none"><h3>Additional Questions</h3>
+  <div data-test-form-element><label for="yrs-numeric">How many years of work experience do you have with Python?</label><input id="yrs-numeric" required><div class="err"></div></div>
+  <fieldset data-test-form-element><legend><span>Are you legally authorized to work in New Zealand?</span></legend>
+    <input type="radio" name="auth" id="ay" value="Yes"><label for="ay">Yes</label><input type="radio" name="auth" id="an" value="No"><label for="an">No</label></fieldset>
+  <div data-test-form-element><label for="np">Notice period</label><select id="np" required><option>Select an option</option><option>Immediately</option><option>2 weeks</option><option>1 month</option></select></div>
+  <div data-test-form-element><label for="why">Why do you want to work at Acme AI?</label><textarea id="why" required></textarea><div class="err"></div></div>
+ </div>
+ <div class="step" id="s4" style="display:none"><h3>Review your application</h3>
+  <div><input type="checkbox" id="fol" checked><label for="fol">Follow Acme AI to stay up to date with their page.</label></div>
+ </div>
+ <footer><button id="back" type="button">Back</button><button id="next" type="button" aria-label="Continue to next step">Next</button></footer>
+</div>
+<div id="sent" role="dialog" style="display:none"><h2>Application sent</h2><p>Your application was sent to Acme AI</p><button id="done">Done</button></div>
+<script>
+let step=1; const pb=document.getElementById("pb"), next=document.getElementById("next");
+window.parent.document.getElementById("ea").addEventListener("click",e=>{e.preventDefault();setTimeout(()=>{window.parent.document.getElementById("interop").classList.add("on");document.getElementById("dlg").style.display="block"},800)});
+function show(n){for(let i=1;i<=4;i++)document.getElementById("s"+i).style.display=i===n?"block":"none";pb.setAttribute("aria-valuenow",String((n-1)*25));
+ next.textContent=n===3?"Review":n===4?"Submit application":"Next";next.setAttribute("aria-label",n===3?"Review your application":n===4?"Submit application":"Continue to next step");}
+function err(id,msg){const el=document.getElementById(id);const e=el.closest("[data-test-form-element]").querySelector(".err");e.setAttribute("role","alert");e.className="artdeco-inline-feedback--error";e.textContent=msg;el.setAttribute("aria-invalid","true");return false}
+function clear(){document.querySelectorAll("[role=alert]").forEach(e=>{e.textContent="";e.removeAttribute("role");e.className="err"});document.querySelectorAll("[aria-invalid]").forEach(e=>e.removeAttribute("aria-invalid"))}
+function valid(n){clear();let ok=true;
+ if(n===1){if(!/^\d{6,12}$/.test(document.getElementById("ph").value))ok=err("ph","Please enter a valid phone number");}
+ if(n===2){if(!document.getElementById("ucl").files.length)ok=err("ucl","A cover letter is required");}
+ if(n===3){const v=document.getElementById("yrs-numeric").value;if(!/^\d+$/.test(v))ok=err("yrs-numeric","Enter a whole number between 0 and 99");
+  if(!document.querySelector("input[name=auth]:checked"))ok=false;if(document.getElementById("np").selectedIndex<1)ok=false;if(document.getElementById("why").value.length<20)ok=err("why","Please enter a valid answer");}
+ return ok}
+next.onclick=()=>{if(step<4){if(valid(step)){step++;show(step)}}else{if(document.getElementById("fol").checked){window.__followed=true}document.getElementById("dlg").style.display="none";document.getElementById("sent").style.display="block";window.__submitted=true}};
+document.getElementById("done").onclick=()=>{document.getElementById("sent").style.display="none"};
+show(1);
+</script></body></html>'></iframe>
+</body></html>

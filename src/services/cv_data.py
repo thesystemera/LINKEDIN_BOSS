@@ -28,6 +28,39 @@ CV_SUPPLEMENTARY = {
 
     "target_locations": ["New Zealand", "Melbourne", "Remote (AU/NZ)"],
 
+    "current_work": {
+        "instruction": "His main work right now. Lead with it when a question asks about recent or current work, and tie it to the job's needs.",
+        "deeppbr_io": {
+            "role": "Founder, Architect & Sole Engineer | deepPBR.io",
+            "timeframe": "June 2026 - present (launching soon at https://deeppbr.io)",
+            "what_it_is": "An autonomous 3D asset factory: upload photos of a real object and get back a production-ready, PBR-textured 3D asset. Three modes (Reconstruction, Repair, Texture) on one shared pipeline. An open-component alternative to the RealityCapture-plus-manual-cleanup workflow.",
+            "lineage": "Rebuilds deepPBR - the four-GAN PBR map generator he created at realityvirtual.co (State of Art Academy Venice 2018, 80.lv features) - as a full cloud product.",
+            "pipeline": [
+                "Photogrammetry lane: COLMAP alignment, OpenMVS dense reconstruction and meshing",
+                "Voxel lane: fuses calibrated silhouettes, monocular depth (Depth Anything) and the photogrammetry surface into one mesh",
+                "AI texture repair: plans virtual camera shots, synthesises missing surface with SDXL in view space and writes it back to the mesh; delighting toward true PBR albedo",
+                "Automatic decimation, UV unwrap, UDIM atlases, surface-detail baking and part segmentation",
+                "Gemini vision-language model for asset classification, part labelling and AI quality grading, with result and context caching and daily spend limits"
+            ],
+            "architecture": [
+                "Python backend: FastAPI, async SQLAlchemy/PostgreSQL, one stage-graph runtime (checkpoints, receipts, retries, resumable projects) shared by all three modes",
+                "GPU workers: PyTorch, nvdiffrast, diffusers, transformers, Open3D; every model warmed at startup with a known VRAM budget; GPU paths fail loudly rather than silently degrading to CPU",
+                "Production: Azure (Caddy, web, API, Postgres) plus a queue-driven RunPod autoscaler for disposable 24 GB GPU pods, content-addressed immutable runtime/model releases, Cloudflare R2 storage",
+                "Accounts, credits and billing, and an asset marketplace",
+                "Three.js / Vite web workspace with one design language across the three modes"
+            ],
+            "scale": "~190,000 lines of Python and ~43,000 lines of frontend JavaScript, ~1,400 automated tests, 680+ commits in about four months - designed and built solo with AI-assisted development",
+            "relevance": "End-to-end ownership at senior-architect level: computer-vision / ML research, GPU performance engineering, distributed cloud infrastructure, product and billing - all designed and shipped by one person."
+        }
+    },
+
+    "working_style": {
+        "instruction": "How he works today. Use for 'about you', architecture, 'why you' questions and cover letters.",
+        "approach": "Language-agnostic systems architect: designs the system, picks the right stack for it, and builds and reviews production code in that stack with AI-assisted development (Claude Code and similar agents). Recent production work spans Python, JavaScript, SQL, shell scripting and GPU pipelines - not tied to any one language.",
+        "evidence": "deepPBR.io (2026), PLAiR (60+ microservices, 2024-2025) and MoneyPrinter (2025) were each architected and shipped by him alone.",
+        "honesty_rule": "Years-of-experience questions still use technology_experience_years. Picking up a new stack fast is a strength to state in free-text answers, not a reason to claim years he doesn't have."
+    },
+
     "background_context": {
         "instruction": "This provides the FULL story beyond the formal CV. Use this to understand depth of experience and familiarity with technology that spans decades.",
         "origin_story": {
@@ -49,7 +82,7 @@ CV_SUPPLEMENTARY = {
     "technology_experience_years": {
         "instruction": "PROFESSIONAL work experience only (not personal/hobby use). When asked 'How many years of work experience with X?', use these numbers.",
         "primary_languages": {
-            "Python": "10 years (primary language since 2014, heavy use in PLAiR, MoneyPrinter, deepPBR pipelines)",
+            "Python": "10 years (primary language since 2014, heavy use in PLAiR, MoneyPrinter, deepPBR pipelines; deepPBR.io 2026 is ~190k lines)",
             "JavaScript/React": "5 years (PLAiR frontend 2024-2025, various web projects)",
             "GLSL": "4 years (realityvirtual.co shader work, PLAiR visualizations)"
         },
@@ -61,16 +94,23 @@ CV_SUPPLEMENTARY = {
         "platforms_environments": {
             "Windows": "10 years (primary development environment throughout professional career)",
             "Linux": "8 years (server deployments, Docker/containerization, production environments)",
-            "Operating_Systems_General": "10 years (professional system architecture, deployment, containerization work)"
+            "Operating_Systems_General": "10 years (professional system architecture, deployment, containerization work)",
+            "Cloud_GPU_Infrastructure": "Under 1 year as a focus (deepPBR.io 2026: Azure, RunPod GPU autoscaling, Cloudflare R2); AWS partnership at realityvirtual.co"
+        },
+        "ai_ml": {
+            "AI/ML in production (overall)": "7 years (since 2018: deepPBR GAN pipelines at realityvirtual.co, BigPipe 2020-2022, LLM platforms PLAiR/MoneyPrinter 2024-2025, deepPBR.io 2026)",
+            "LLMs / generative AI APIs (Claude, Gemini, GPT, ElevenLabs, Whisper)": "2 years (PLAiR 2024-2025, MoneyPrinter 2025, deepPBR.io 2026)",
+            "Computer vision / 3D reconstruction / photogrammetry": "10+ years (realityvirtual.co 2014-2020, BigPipe 2020-2022, deepPBR.io 2026: COLMAP, OpenMVS, monocular depth, Gaussian splatting)"
         },
         "frameworks_platforms": {
-            "FastAPI": "2 years (PLAiR + MoneyPrinter 2024-2025, heavy production use)",
+            "FastAPI": "2 years (PLAiR + MoneyPrinter 2024-2025, deepPBR.io 2026, heavy production use)",
+            "Three.js": "Under 1 year (deepPBR.io 2026 web workspace and 3D viewer)",
             "React": "2 years (PLAiR frontend 2024-2025)",
             "Unreal Engine": "6 years (realityvirtual.co 2014-2020, primary platform for VR work)",
             "Unity": "4 years (realityvirtual.co 2014-2020, secondary platform alongside Unreal)",
             "OpenCV": "3 years (deepPBR/deepMirror computer vision pipelines, photogrammetry preprocessing)",
             "Docker": "3 years (containerization for PLAiR/MoneyPrinter deployments)",
-            "PyTorch/TensorFlow": "4 years (custom model training for deepPBR, audio enhancement)",
+            "PyTorch/TensorFlow": "4 years (custom model training for deepPBR, audio enhancement; deepPBR.io 2026 GPU pipeline with PyTorch, nvdiffrast, diffusers)",
             "Maya": "5 years (3D asset pipelines, photogrammetry cleanup, VFX workflows)",
             "Houdini": "3 years (procedural workflows, VFX, point cloud processing)",
             "Substance Painter/Designer": "4 years (PBR texturing, directly informed deepPBR AI development)"
@@ -302,3 +342,36 @@ State of Art Academy Interview (2018): Venice Technical Deep-Dive on Deep Learni
 eLearningInside Profile: Capturing the Past in Virtual Reality – An Interview with Simon Che de Boer
 Cesium Guest Profile: Simon Che de Boer – Geospatial 3D Expert
 """
+APPLICATION_PROFILE = {
+    "first_name": "Simon",
+    "last_name": "Che de Boer",
+    "preferred_name": "Simon",
+    "email": "simon@realityvirtual.co",
+    "phone_e164": "+64211490191",
+    "phone_national": "211490191",
+    "phone_country": "New Zealand",
+    "phone_country_code": "+64",
+    "location": "Auckland, New Zealand",
+    "city": "Auckland",
+    "region": "Auckland",
+    "country": "New Zealand",
+    "street_address": "",
+    "postcode": "",
+    "linkedin": "https://www.linkedin.com/in/simon-che-de-boer-2a49386a",
+    "github": "https://github.com/thesystemera",
+    "portfolio": "https://plair.live",
+    "current_company": "deepPBR.io",
+    "current_title": "Founder & Lead Architect",
+    "how_heard": "LinkedIn",
+    "highest_education": "Bachelor's degree",
+    "education": [
+        {"qualification": "Bachelor of Recording Arts (BRA)", "field": "Audio engineering / recording arts", "institution": "SAE Institute", "when": "about 20 years ago (around 2005; exact year not recorded)"},
+        {"qualification": "Radio broadcasting training", "field": "Radio broadcasting", "institution": "New Zealand Radio Training School", "when": "about 20 years ago"},
+    ],
+    "postgraduate": "None (no master's or PhD)",
+    "open_source": "Publishes his own projects publicly on GitHub (https://github.com/thesystemera); not a regular contributor to other people's open-source projects",
+    # LinkedIn profile entries that have no dates; Easy Apply forms demand them. Approximate, confirmed OK by Simon.
+    "work_history_dates": {
+        "Media Sculpt": {"from": "January 2005", "to": "December 2006"},
+    },
+}

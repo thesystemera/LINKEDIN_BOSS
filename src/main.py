@@ -2,6 +2,12 @@ import sys
 import os
 import time
 import random
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import nest_asyncio
 from playwright.sync_api import sync_playwright
 
@@ -12,438 +18,414 @@ from src.services.session_manager import SessionManager
 from src.services.database import Database
 from src.services.job_scraper import JobScraper
 from src.services.job_evaluator import JobEvaluator
-from src.services.auto_applier import AutoApplier
+from src.services.browser import launch_context, main_page, save_cookies, SessionExpired, linkedin_logged_in
+from src.services.appliers import FormRunner, LinkedInApplier, ExternalApplier, ApplyResult, detect_ats
+from src.services.answer_bank import AnswerBank
 from src.utils.logger import (
-    console,
-    print_header,
-    print_success,
-    print_error,
-    print_warning,
-    print_info,
-    print_stats_table,
-    print_run_summary,
-    custom_print
+    console, print_header, print_success, print_error, print_warning, print_info, print_stats_table, print_run_summary, custom_print
 )
+import migrate_db
+
+APPLIED_STATUSES = ("success", "submitted_unconfirmed")
+
+
+def init_db() -> Database:
+    db = Database(settings.DB_PATH)
+    migrate_db.apply_v2(settings.DB_PATH)
+    return db
+
+
+def preflight(need_session: bool = True) -> bool:
+    init_db()
+    if not settings.load_api_key_from_file("gemini_key"):
+        print_error("Gemini API key not found - add GEMINI_API_KEY to .env")
+        return False
+    if need_session and not SessionManager().session_exists():
+        print_warning("No browser profile / LinkedIn session yet.")
+        if input("Log in now? (y/n): ").strip().lower() != "y":
+            return False
+        setup()
+    return True
+
+
+def build_appliers():
+    runner = FormRunner()
+    external = ExternalApplier(runner)
+    return LinkedInApplier(runner, external), external
+
+
+def report(result: dict):
+    s, e = result["status"], result.get("error")
+    if s == "success":
+        print_success(f"Application submitted! ({result.get('steps')} steps, {result.get('channel')})")
+    elif s == "submitted_unconfirmed":
+        print_warning(f"Submitted but no confirmation detected ({result.get('channel')})")
+    elif s in ("manual_review_needed", "external"):
+        print_warning(f"Needs manual review: {e}")
+    elif s in ("already_applied", "expired", "skipped", "skipped_by_user", "dry_run"):
+        custom_print("INFO", f"{s}: {e or ''}")
+    else:
+        print_error(f"Failed ({s}): {e}")
+
+
+def apply_job(page, job: dict, li: LinkedInApplier, ext: ExternalApplier) -> dict:
+    try:
+        if job.get("external_url") and job.get("apply_type") == "external" and settings.EXTERNAL_APPLY:
+            ext_page = page.context.new_page()
+            try:
+                result = ext.apply(ext_page, job, url=job["external_url"])
+            finally:
+                try:
+                    ext_page.close()
+                except Exception:
+                    pass
+        else:
+            result = li.apply(page, job)
+    except SessionExpired:
+        raise
+    except Exception as e:
+        custom_print("ERROR", f"Crash during application: {e}")
+        result = ApplyResult("error", f"Crash: {str(e)[:300]}", 0)
+    return result.as_dict()
+
 
 def setup():
-    print_header("LinkedIn Auto-Apply Setup")
-    console.print("This will save your LinkedIn session for future runs.\n")
-
-    session_mgr = SessionManager(settings.SESSION_PATH)
-    session_mgr.save_session()
-
+    print_header("LinkedIn Boss Setup")
+    SessionManager().save_session()
     print_success("Setup complete!")
-    console.print("\nNext steps:")
-    console.print("1. Add your Gemini API key to: .env (see .env.example)")
-    console.print("2. Run: python src/main.py run")
 
 
 def run(max_apps: int = None):
     max_apps = max_apps or settings.MAX_APPLICATIONS_PER_DAY
-
-    print_header("LinkedIn Auto-Apply Settings")
-    console.print(f"[cyan]Manual Approval:[/cyan] {settings.MANUAL_APPROVAL}")
-    console.print(f"[cyan]Dry Run Mode:[/cyan] {settings.DRY_RUN}")
-    console.print(f"[cyan]Max Apps/Day:[/cyan] {settings.MAX_APPLICATIONS_PER_DAY}")
-    console.print()
-
-    db = Database(settings.DB_PATH)
-    session_mgr = SessionManager(settings.SESSION_PATH)
-
-    if not session_mgr.session_exists():
-        print_warning("No LinkedIn session found!")
-        console.print("\n[yellow]First time setup needed - I'll walk you through it.[/yellow]\n")
-        response = input("Ready to login to LinkedIn? (y/n): ").lower().strip()
-        if response != 'y':
-            console.print("\n[red]Setup cancelled. Run again when ready![/red]")
-            return
-        setup()
-        console.print("\n[green]✓ Setup complete! Starting automation...[/green]\n")
-        time.sleep(2)
-
-    api_key = settings.load_api_key_from_file("gemini_key")
-    if not api_key:
-        print_error("Gemini API key not found!")
-        console.print("\n[yellow]You need to add your Gemini API key:[/yellow]")
-        console.print("1. Get your key from: https://aistudio.google.com/app/apikey")
-        console.print("2. Add to .env: GEMINI_API_KEY=your_key_here")
+    print_header("LinkedIn Boss v2")
+    console.print(f"[cyan]Manual approval:[/cyan] {settings.MANUAL_APPROVAL}   [cyan]Dry run:[/cyan] {settings.DRY_RUN}   "
+                  f"[cyan]Max/day:[/cyan] {max_apps}   [cyan]External apply:[/cyan] {settings.EXTERNAL_APPLY}   "
+                  f"[cyan]Easy Apply only:[/cyan] {settings.EASY_APPLY_ONLY}")
+    if not preflight():
         return
-
-    session_scraped = 0
-    session_evaluated = 0
-    session_applied = 0
-
+    db = Database(settings.DB_PATH)
+    scraped = evaluated = applied = 0
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=settings.HEADLESS,
-            slow_mo=settings.SLOW_MO
-        )
-        context = browser.new_context(viewport=settings.VIEWPORT)
-        session_mgr.load_session(context)
-        page = context.new_page()
-
+        ctx = launch_context(p)
+        page = main_page(ctx)
         evaluator = JobEvaluator(settings)
-        scraper = JobScraper(settings)
-        applier = AutoApplier(settings)
-
-        while True:
-            today_count = db.get_daily_count()
-            remaining = max_apps - today_count
-
-            print_header("Pipeline Status")
-            console.print(f"Applications today: {today_count}/{max_apps}")
-            console.print(f"Remaining: {remaining}")
-
-            stats = db.get_stats()
-            custom_print("INFO",
-                         f"Database: {stats['total_jobs']} jobs scraped, {stats['total_evaluated']} evaluated, {sum(stats['applications_by_status'].values())} applications submitted")
-            if stats['applications_by_status']:
-                status_summary = ', '.join(
-                    [f"{status}: {count}" for status, count in stats['applications_by_status'].items()])
-                custom_print("INFO", f"Application statuses: {status_summary}")
-
-            if remaining <= 0:
-                print_warning(f"Daily limit reached ({today_count}/{max_apps})")
-                console.print("Try again tomorrow or increase MAX_APPLICATIONS_PER_DAY.")
-                break
-
-            unapplied_jobs = db.get_unapplied_good_jobs()
-            unevaluated_jobs = db.get_unevaluated_jobs()
-
-            if unapplied_jobs:
-                count = len(unapplied_jobs)
-                custom_print("INFO", f"Found {count} jobs ready for application. Processing now...")
-
-                batch_to_apply = unapplied_jobs[:remaining]
-
-                print_header(f"Applying to {len(batch_to_apply)} Jobs")
-
-                for idx, job in enumerate(batch_to_apply):
-                    if idx > 0 and idx % 10 == 0:
-                        page = session_mgr.recycle_page(context, page)
-
-                    console.print(f"\n[cyan]{'=' * 60}[/cyan]")
-                    console.print(f"[bold][{idx + 1}/{len(batch_to_apply)}] {job['title']}[/bold]")
-                    console.print(f"Company: {job['company']}")
-                    console.print(f"Confidence: {job['evaluation']['confidence']}%")
-                    console.print(f"Reason: {job['evaluation']['reason'][:100]}...")
-                    console.print(f"[cyan]{'=' * 60}[/cyan]")
-
-                    try:
-                        result = applier.apply_to_job(page, job)
-                    except Exception as e:
-                        custom_print("ERROR", f"Fatal crash during application: {str(e)}")
-                        result = {"status": "error", "error": f"Fatal crash: {str(e)}", "steps": 0}
-
-                    db.insert_application(job['id'], result)
-
-                    if result['status'] == 'success':
-                        session_applied += 1
-                        print_success(f"Application submitted! ({result['steps']} steps)")
-                    elif result['status'] == 'manual_review_needed':
-                        print_warning(f"Needs manual review: {result['error']}")
-                    elif result['status'] == 'skipped':
-                        custom_print("INFO", "Skipped (Already applied)")
-                    else:
-                        print_error(f"Failed: {result['error']}")
-
-                    if idx < len(batch_to_apply) - 1:
-                        delay = random.uniform(settings.MIN_DELAY_BETWEEN_APPS, settings.MAX_DELAY_BETWEEN_APPS)
-                        console.print(f"\n[dim]Waiting {delay / 60:.1f} minutes before next application...[/dim]")
-                        time.sleep(delay)
-
-                continue
-
-            elif unevaluated_jobs:
-                custom_print("INFO", f"Found {len(unevaluated_jobs)} jobs waiting for evaluation.")
-                print_header("Step 2: AI Evaluation")
-
-                evaluator.filter_jobs_sync(unevaluated_jobs, settings.CONFIDENCE_THRESHOLD, page=page, db=db)
-
-                session_evaluated += len(unevaluated_jobs)
-                continue
-
-            else:
-                custom_print("INFO", "No pending work found. Starting scraper...")
-                print_header("Step 1: Scraping Jobs")
-
+        scraper = JobScraper(settings, db)
+        li, ext = build_appliers()
+        try:
+            page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
+            time.sleep(3)
+            if not linkedin_logged_in(page):
+                raise SessionExpired("Not logged in to LinkedIn")
+            empty_scrapes = 0
+            session_done = set()
+            while True:
+                today = db.get_daily_count()
+                remaining = max_apps - today
+                print_header("Pipeline Status")
+                st = db.get_stats()
+                console.print(f"Applications today: {today}/{max_apps} | Jobs: {st['total_jobs']} | Evaluated: {st['total_evaluated']}")
+                if remaining <= 0:
+                    print_warning(f"Daily limit reached ({today}/{max_apps})")
+                    break
+                queue = db.get_unapplied_good_jobs(settings.SORT_QUEUE_BY_PAY, settings.EXTERNAL_APPLY and not settings.EASY_APPLY_ONLY, settings.QUEUE_MAX_AGE_DAYS)
+                queue = [j for j in queue if j["id"] not in session_done]
+                if queue:
+                    batch = queue[:remaining]
+                    print_header(f"Applying to {len(batch)} jobs (highest pay first)" if settings.SORT_QUEUE_BY_PAY else f"Applying to {len(batch)} jobs")
+                    for idx, job in enumerate(batch):
+                        if db.get_daily_count() >= max_apps:
+                            break
+                        if idx and idx % 10 == 0:
+                            page = SessionManager().recycle_page(ctx, page)
+                        ev = job.get("evaluation", {})
+                        pay = f" | ~NZ${ev['pay_nzd']:,.0f} ({ev.get('pay_basis')})" if ev.get("pay_nzd") else ""
+                        console.print(f"\n[cyan]{'=' * 70}[/cyan]\n[bold][{idx + 1}/{len(batch)}] {job['title']}[/bold] @ {job['company']}")
+                        console.print(f"{job.get('location') or ''} | {job.get('apply_type') or '?'} | {ev.get('confidence')}%{pay}\n{(ev.get('reason') or '')[:160]}")
+                        if db.recent_duplicate(job["company"], job["title"], settings.REPOST_COOLDOWN_DAYS, job["id"]):
+                            db.insert_application(job["id"], {"status": "skipped", "error": "Repost of a role already applied to"})
+                            custom_print("SKIP", "Repost of a role already applied to")
+                            continue
+                        result = apply_job(page, job, li, ext)
+                        session_done.add(job["id"])
+                        if not settings.DRY_RUN and result["status"] != "dry_run":
+                            db.insert_application(job["id"], result)
+                        report(result)
+                        if result["status"] in APPLIED_STATUSES:
+                            applied += 1
+                        if idx < len(batch) - 1 and result["status"] not in ("already_applied", "expired", "skipped"):
+                            delay = random.uniform(settings.MIN_DELAY_BETWEEN_APPS, settings.MAX_DELAY_BETWEEN_APPS)
+                            if result["status"] not in APPLIED_STATUSES:
+                                delay /= 3
+                            console.print(f"[dim]Waiting {delay / 60:.1f} min...[/dim]")
+                            time.sleep(delay)
+                    continue
+                pending = db.get_unevaluated_jobs()
+                if pending:
+                    print_header(f"Evaluating {len(pending)} jobs")
+                    evaluator.filter_jobs_sync(pending, settings.CONFIDENCE_THRESHOLD, page=page, db=db)
+                    evaluated += len(pending)
+                    if evaluator.last_errors and len(db.get_unevaluated_jobs()) >= len(pending):
+                        print_error("Evaluation is failing (Gemini errors) - stopping. Run: python src/main.py doctor")
+                        break
+                    continue
+                print_header("Scraping new jobs")
                 jobs = scraper.scrape_recommended_jobs(page, settings.MAX_JOBS_TO_SCRAPE)
+                new = 0
+                for j in jobs:
+                    jid = db.insert_job(j)
+                    if jid > 0 and not db.is_job_already_processed(jid):
+                        new += 1
+                scraped += new
+                custom_print("SUCCESS", f"Added {new} new jobs")
+                if new == 0:
+                    empty_scrapes += 1
+                    if empty_scrapes >= 2:
+                        print_warning("No new jobs found in two scrape rounds - stopping.")
+                        break
+        except SessionExpired as e:
+            print_error(str(e))
+            console.print("Run option [4] Setup to log in again.")
+        except KeyboardInterrupt:
+            print_warning("Stopped by user")
+        finally:
+            save_cookies(ctx)
+            ctx.close()
+    print_run_summary(scraped=scraped, evaluated=evaluated, applied=applied, today_total=db.get_daily_count(), daily_limit=max_apps)
+    from src.services.ai_service import AIService
+    if AIService().usage_line():
+        print_info(AIService().usage_line())
 
-                if not jobs:
-                    print_warning("No new jobs found via scraping.")
-                    console.print("Exiting loop.")
-                    break
-
-                new_jobs_count = 0
-                skipped_count = 0
-
-                custom_print("INFO", "Saving jobs to database...")
-                for job in jobs:
-                    job_id = db.insert_job(job)
-
-                    if not db.is_job_already_processed(job_id):
-                        new_jobs_count += 1
-                    else:
-                        skipped_count += 1
-                        custom_print("SKIP", f"Already processed: {job['title'][:30]}...")
-
-                if new_jobs_count == 0:
-                    print_warning(f"All {len(jobs)} scraped jobs were duplicates. Stopping to avoid infinite loop.")
-                    break
-
-                session_scraped += new_jobs_count
-                custom_print("SUCCESS", f"Added {new_jobs_count} new jobs to processing queue.")
-
-                continue
-
-        browser.close()
-
-    print_run_summary(
-        scraped=session_scraped,
-        evaluated=session_evaluated,
-        applied=session_applied,
-        today_total=db.get_daily_count(),
-        daily_limit=max_apps
-    )
 
 def apply_single(job_input: str):
-    """Apply to a single job by URL or job number."""
-    # Normalize input to a full URL
     job_input = job_input.strip()
-    if job_input.startswith('http'):
-        url = job_input.split('?')[0]  # Strip tracking params
-    else:
-        # Assume it's a job number
-        url = f"https://www.linkedin.com/jobs/view/{job_input}/"
-
-    # Extract linkedin_job_id from URL
-    linkedin_job_id = url.rstrip('/').split('/')[-1]
-
-    print_header("Apply to Specific Job")
-    console.print(f"[cyan]URL:[/cyan] {url}")
-    console.print(f"[cyan]Job ID:[/cyan] {linkedin_job_id}")
-    console.print(f"[cyan]Manual Approval:[/cyan] {settings.MANUAL_APPROVAL}")
-    console.print(f"[cyan]Dry Run:[/cyan] {settings.DRY_RUN}")
-    console.print()
-
-    db = Database(settings.DB_PATH)
-    session_mgr = SessionManager(settings.SESSION_PATH)
-
-    if not session_mgr.session_exists():
-        print_error("No LinkedIn session found! Run setup first.")
+    if not preflight():
         return
-
+    db = Database(settings.DB_PATH)
+    is_linkedin = job_input.isdigit() or "linkedin.com" in job_input
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=settings.HEADLESS,
-            slow_mo=settings.SLOW_MO
-        )
-        context = browser.new_context(viewport=settings.VIEWPORT)
-        session_mgr.load_session(context)
-        page = context.new_page()
-
-        # Navigate to job page and extract info
-        custom_print("INFO", f"Navigating to job page...")
-        page.goto(url, wait_until='domcontentloaded')
-        time.sleep(3)
-
-        current_url = page.url
-        if 'authwall' in current_url or 'login' in current_url:
-            print_error("LinkedIn redirected to login - session expired. Run setup.")
-            browser.close()
-            return
-
-        # Extract title from page
-        title = "Unknown Title"
-        for sel in ['h1.t-24', 'h1.topcard__title', 'h1', '.job-details-jobs-unified-top-card__job-title']:
-            elem = page.query_selector(sel)
-            if elem:
-                text = elem.inner_text().strip()
-                if text:
-                    title = text
-                    break
-
-        # Extract company from page
-        company = "Unknown Company"
-        for sel in ['.job-details-jobs-unified-top-card__company-name', '.topcard__org-name-link', '.job-details-jobs-unified-top-card__primary-description-container a']:
-            elem = page.query_selector(sel)
-            if elem:
-                text = elem.inner_text().strip()
-                if text:
-                    company = text
-                    break
-
-        # Extract description
-        evaluator = JobEvaluator(settings)
-        description = evaluator._extract_job_description({'url': url, 'title': title}, page) or 'No Description Available'
-
-        console.print(f"\n[bold]{title}[/bold]")
-        console.print(f"Company: {company}")
-        console.print(f"Description: {description[:200]}...")
-        console.print()
-
-        # Insert job into DB (deduplicates by linkedin_job_id)
-        job_data = {
-            'linkedin_job_id': linkedin_job_id,
-            'title': title,
-            'company': company,
-            'url': url,
-            'description': description,
-        }
-        job_id = db.insert_job(job_data)
-        custom_print("INFO", f"Job in database (id={job_id})")
-
-        # Insert synthetic evaluation (user explicitly chose this job)
-        if not db.is_job_already_processed(job_id):
-            db.insert_evaluation(job_id, {
-                'apply': True,
-                'confidence': 100,
-                'reason': 'Manually selected by user'
-            })
-            custom_print("INFO", "Created evaluation (manually selected)")
-        else:
-            custom_print("INFO", "Job already has evaluation in database")
-
-        # Build job dict in the format apply_to_job expects
-        job = {
-            'id': job_id,
-            'title': title,
-            'company': company,
-            'url': url,
-            'description': description,
-            'evaluation': {
-                'confidence': 100,
-                'reason': 'Manually selected by user',
-                'apply': True
-            }
-        }
-
-        # Apply
-        applier = AutoApplier(settings)
+        ctx = launch_context(p)
+        page = main_page(ctx)
+        li, ext = build_appliers()
         try:
-            result = applier.apply_to_job(page, job)
-        except Exception as e:
-            custom_print("ERROR", f"Fatal crash during application: {str(e)}")
-            result = {"status": "error", "error": f"Fatal crash: {str(e)}", "steps": 0}
-
-        db.insert_application(job_id, result)
-
-        if result['status'] == 'success':
-            print_success(f"Application submitted! ({result['steps']} steps)")
-        elif result['status'] == 'manual_review_needed':
-            print_warning(f"Needs manual review: {result['error']}")
-        elif result['status'] == 'dry_run':
-            print_info("Dry run complete - application was NOT submitted")
-        elif result['status'] == 'skipped':
-            custom_print("INFO", "Skipped (Already applied)")
-        else:
-            print_error(f"Failed: {result['error']}")
-
-        browser.close()
-
-
-def run_retry():
-    print_header("Retry Failed / Manual Review Jobs")
-    console.print(f"[cyan]Manual Approval:[/cyan] {settings.MANUAL_APPROVAL}")
-    console.print(f"[cyan]Dry Run Mode:[/cyan] {settings.DRY_RUN}")
-
-    db = Database(settings.DB_PATH)
-    all_failed = db.get_jobs_for_retry()
-    retry_jobs = db.get_jobs_for_retry(max_age_days=settings.RETRY_MAX_AGE_DAYS)
-
-    if not retry_jobs:
-        if all_failed:
-            print_info(f"No recent jobs to retry ({len(all_failed)} failed jobs are older than {settings.RETRY_MAX_AGE_DAYS} days).")
-        else:
-            print_info("No failed or manual-review jobs found to retry!")
-        return
-
-    print_info(f"Found {len(retry_jobs)} jobs to retry (last {settings.RETRY_MAX_AGE_DAYS} days). {len(all_failed) - len(retry_jobs)} older jobs skipped.")
-
-    session_mgr = SessionManager(settings.SESSION_PATH)
-    if not session_mgr.session_exists():
-        print_error("No LinkedIn session found! Run setup first.")
-        return
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=settings.HEADLESS,
-            slow_mo=settings.SLOW_MO
-        )
-        context = browser.new_context(viewport=settings.VIEWPORT)
-        session_mgr.load_session(context)
-        page = context.new_page()
-
-        applier = AutoApplier(settings)
-        session_applied = 0
-
-        print_header(f"Retrying {len(retry_jobs)} Jobs")
-
-        for idx, job in enumerate(retry_jobs):
-            if idx > 0 and idx % 10 == 0:
-                page = session_mgr.recycle_page(context, page)
-
-            console.print(f"\n[cyan]{'=' * 60}[/cyan]")
-            console.print(f"[bold][{idx + 1}/{len(retry_jobs)}] RETRYING: {job['title']}[/bold]")
-            console.print(f"Company: {job['company']}")
-            console.print(f"URL: {job['url']}")
-            console.print(f"[cyan]{'=' * 60}[/cyan]")
-
-            try:
-                result = applier.apply_to_job(page, job)
-            except Exception as e:
-                custom_print("ERROR", f"Fatal crash during application: {str(e)}")
-                result = {"status": "error", "error": f"Fatal crash: {str(e)}", "steps": 0}
-
-            # In retry mode: only manual_review_needed is worth retrying.
-            # Everything else (no_easy_apply, error, timeout) = expired, don't waste time again.
-            if result['status'] in ('no_easy_apply', 'error'):
-                result['status'] = 'expired'
-                result['error'] = result.get('error', 'Job no longer available')
-                custom_print("INFO", f"Marking as expired: {job['title']} at {job['company']}")
-
-            db.insert_application(job['id'], result)
-
-            if result['status'] == 'success':
-                session_applied += 1
-                print_success(f"Application submitted! ({result['steps']} steps)")
-            elif result['status'] == 'expired':
-                custom_print("INFO", "Job expired - removed from retry queue")
-            elif result['status'] == 'manual_review_needed':
-                print_warning(f"Still needs manual review: {result['error']}")
-            elif result['status'] == 'skipped':
-                custom_print("INFO", "Skipped")
+            if is_linkedin:
+                m = __import__("re").search(r"(\d{6,})", job_input)
+                jid = m.group(1) if m else job_input
+                url = f"https://www.linkedin.com/jobs/view/{jid}/"
+                existing = db.get_job_by_linkedin_id(jid)
+                evaluator = JobEvaluator(settings)
+                page.goto(url, wait_until="domcontentloaded")
+                time.sleep(3)
+                title = page.evaluate("() => (document.querySelector('h1') || {}).innerText || document.title.split('|')[0]").strip()
+                company = page.evaluate("""() => { const a = document.querySelector('.job-details-jobs-unified-top-card__company-name a, a[href*="/company/"]'); return a ? a.innerText.trim() : ''; }""")
+                job = existing or {"linkedin_job_id": jid, "title": title or "Unknown", "company": company or "Unknown", "url": url}
+                details = evaluator.extract_details(job, page) or {}
+                job.update({k: v for k, v in details.items() if v and k != "top"})
+                job["id"] = existing["id"] if existing else db.insert_job(job)
+                db.update_job_details(job["id"], details)
+                if not settings.DRY_RUN and not db.is_job_already_processed(job["id"]):
+                    db.insert_evaluation(job["id"], {"apply": True, "confidence": 100, "reason": "Manually selected"})
+                result = li.apply(page, job).as_dict()
             else:
-                print_error(f"Failed: {result['error']}")
+                title = ""
+                page.goto(job_input, wait_until="domcontentloaded")
+                time.sleep(3)
+                title = page.title()
+                job = {"linkedin_job_id": None, "title": title.split("|")[0].split(" - ")[0].strip() or "Unknown", "company": input("Company name: ").strip() or "Unknown",
+                       "url": job_input, "description": page.evaluate("() => document.body.innerText.slice(0, 9000)"), "apply_type": "external", "external_url": job_input}
+                job["id"] = db.insert_job({**job, "linkedin_job_id": "ext-" + __import__("hashlib").sha1(job_input.encode()).hexdigest()[:16]})
+                if not settings.DRY_RUN:
+                    db.insert_evaluation(job["id"], {"apply": True, "confidence": 100, "reason": "Manually selected"})
+                result = ext.apply(page, job).as_dict()
+            # a dry run never records results (a failed dry run would otherwise take the job out of the queue)
+            if not settings.DRY_RUN and result["status"] != "dry_run":
+                db.insert_application(job["id"], result)
+            report(result)
+        except SessionExpired as e:
+            print_error(str(e))
+        finally:
+            save_cookies(ctx)
+            ctx.close()
 
-            if idx < len(retry_jobs) - 1 and result['status'] == 'success':
-                delay = random.uniform(settings.MIN_DELAY_BETWEEN_APPS, settings.MAX_DELAY_BETWEEN_APPS)
-                console.print(f"\n[dim]Waiting {delay / 60:.1f} minutes before next retry...[/dim]")
-                time.sleep(delay)
 
-        browser.close()
+def run_retry(statuses=("manual_review_needed", "error"), title="Retry Failed / Manual Review Jobs", max_age=None):
+    print_header(title)
+    if not preflight():
+        return
+    db = Database(settings.DB_PATH)
+    jobs = db.get_jobs_for_retry(max_age_days=max_age if max_age is not None else settings.RETRY_MAX_AGE_DAYS, statuses=statuses)
+    if not jobs:
+        print_info("Nothing to retry.")
+        return
+    print_info(f"{len(jobs)} jobs to retry")
+    done = 0
+    with sync_playwright() as p:
+        ctx = launch_context(p)
+        page = main_page(ctx)
+        li, ext = build_appliers()
+        try:
+            for idx, job in enumerate(jobs):
+                console.print(f"\n[bold][{idx + 1}/{len(jobs)}] {job['title']}[/bold] @ {job['company']} ({job.get('external_url') or job['url']})")
+                result = apply_job(page, job, li, ext)
+                if result["status"] in ("no_easy_apply",):
+                    result["status"] = "expired"
+                if not settings.DRY_RUN and result["status"] != "dry_run":
+                    db.insert_application(job["id"], result)
+                report(result)
+                if result["status"] in APPLIED_STATUSES:
+                    done += 1
+                    if idx < len(jobs) - 1:
+                        time.sleep(random.uniform(settings.MIN_DELAY_BETWEEN_APPS, settings.MAX_DELAY_BETWEEN_APPS) / 2)
+        except SessionExpired as e:
+            print_error(str(e))
+        except KeyboardInterrupt:
+            print_warning("Stopped by user")
+        finally:
+            save_cookies(ctx)
+            ctx.close()
+    print_success(f"Retry complete: {done}/{len(jobs)} submitted")
 
-    print_success(f"Retry run complete. Successfully applied to {session_applied}/{len(retry_jobs)} jobs.")
+
+def external_queue():
+    settings.MANUAL_APPROVAL = True
+    run_retry(("manual_review_needed", "external"), "External Applications Queue (assisted)", max_age=60)
+
 
 def stats():
-    db = Database(settings.DB_PATH)
-    stats_data = db.get_stats()
-
+    db = init_db()
     print_header("Application Statistics")
-    print_stats_table(stats_data)
+    print_stats_table(db.get_stats())
+    rows = db.channel_stats()
+    if rows:
+        console.print("[bold]By channel[/bold]")
+        for ch, status, n in rows:
+            console.print(f"  {ch:22} {status:24} {n}")
+    console.print(f"\n[bold]Answer bank:[/bold] {AnswerBank(settings.DB_PATH).counts()}")
+
+
+def answers_review():
+    init_db()
+    bank = AnswerBank(settings.DB_PATH)
+    rows = bank.pending()
+    print_header(f"Answer bank review ({len(rows)} unreviewed)")
+    if not rows:
+        print_info("Nothing to review.")
+        return
+    console.print("For each saved answer: [green]a[/green]=approve  [yellow]e[/yellow]=edit  [red]r[/red]=reject (never reuse)  s=skip  q=quit\n")
+    for i, r in enumerate(rows, 1):
+        scope = r["scope"] + (f" ({r['region']})" if r["region"] else "")
+        console.print(f"[cyan][{i}/{len(rows)}][/cyan] [bold]{r['question'][:300]}[/bold]  [dim]{r['family']}, {scope}, used {r['uses']}x[/dim]")
+        if r.get("options_json") and r["options_json"] not in ("[]", "null"):
+            console.print(f"   options: {r['options_json'][:300]}")
+        console.print(f"   answer: [white]{r['answer'][:500]}[/white]")
+        c = input("   > ").strip().lower()
+        if c == "a":
+            bank.set_status(r["id"], "approved")
+        elif c == "e":
+            new = input("   new answer: ").strip()
+            if new:
+                bank.set_status(r["id"], "approved", new)
+        elif c == "r":
+            bank.set_status(r["id"], "rejected")
+        elif c == "q":
+            break
+    console.print(f"\n{bank.counts()}")
+
+
+def doctor():
+    print_header("Doctor")
+    init_db()
+    migrate_db.apply_v2(settings.DB_PATH, verbose=True)
+    key = settings.load_api_key_from_file("gemini_key")
+    console.print(f"Gemini key: {'[green]found[/green]' if key else '[red]missing[/red]'}")
+    if key:
+        try:
+            from src.services.ai_service import AIService
+            models = AIService().list_models()
+            console.print(f"Available Gemini models ({len(models)}): {', '.join(m for m in models if 'gemini-3' in m or 'gemini-2.5' in m)[:900]}")
+            for role, chain in settings.MODELS.items():
+                pick = next((m for m in chain if m in models), None)
+                console.print(f"  {role:7} -> {'[green]' + pick + '[/green]' if pick else '[red]none of ' + str(chain) + '[/red]'}")
+        except Exception as e:
+            console.print(f"[red]Model listing failed: {e}[/red]")
+    cs = Database(settings.DB_PATH).ai_cache_stats()
+    console.print(f"AI answer cache: {cs['entries']} saved answers, reused {cs['hits']} times "
+                  f"(saved {cs['input_tokens_saved']:,} input + {cs['output_tokens_saved']:,} output tokens) | "
+                  f"thinking level {settings.THINKING_LEVEL} | Gemini context cache {'on' if settings.AI_EXPLICIT_CACHE else 'off'}")
+    try:
+        import docx
+        console.print("python-docx: [green]ok[/green]")
+    except ImportError:
+        console.print("python-docx: [red]missing[/red] (pip install python-docx) - cover letters will be .txt")
+    for lane in settings.CV_FILES:
+        p = settings.cv_for_lane(lane)
+        console.print(f"CV ({lane}): {'[green]' + str(p) + '[/green]' if p else '[red]not found: ' + settings.CV_FILES[lane] + '[/red]'}")
+    console.print(f"ATS account email/password in .env: {'yes' if settings.env('ATS_ACCOUNT_EMAIL') and settings.env('ATS_ACCOUNT_PASSWORD') else 'no (Workday sign-in will ask you)'}")
+    console.print(f"Browser profile: {settings.PROFILE_DIR} ({'exists' if SessionManager().session_exists() else 'not set up - run setup'})")
+    if input("Open the browser and check the LinkedIn login? (y/n): ").strip().lower() == "y":
+        with sync_playwright() as p:
+            ctx = launch_context(p)
+            page = main_page(ctx)
+            page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
+            time.sleep(4)
+            console.print(f"LinkedIn logged in: {'[green]yes[/green]' if linkedin_logged_in(page) else '[red]no - run setup[/red]'}")
+            ctx.close()
+
+
+def capture():
+    print_header("Capture page structure")
+    from datetime import datetime
+    from src.services.appliers.linkedin import LinkedInApplier
+    url = input("LinkedIn job URL/number or any application page URL: ").strip()
+    if url.isdigit():
+        url = f"https://www.linkedin.com/jobs/view/{url}/"
+    out = settings.FIXTURE_DIR / datetime.now().strftime("%Y%m%d_%H%M%S")
+    out.mkdir(parents=True, exist_ok=True)
+
+    def dump(page, tag):
+        page.screenshot(path=str(out / f"{tag}.png"))
+        for i, fr in enumerate(page.frames):
+            try:
+                html = fr.content()
+            except Exception:
+                continue
+            (out / f"{tag}_frame{i}.html").write_text(f"<!-- {fr.url} -->\n" + html, encoding="utf-8")
+        console.print(f"  saved {tag} ({len(page.frames)} frames)")
+
+    with sync_playwright() as p:
+        ctx = launch_context(p)
+        page = main_page(ctx)
+        page.goto(url, wait_until="domcontentloaded")
+        time.sleep(5)
+        dump(page, "1_page")
+        if "linkedin.com" in url:
+            li = LinkedInApplier()
+            state = li.job_state(page)
+            console.print(f"  job state: {state}")
+            btn = li._apply_locator(page, easy=bool(state.get("easy")))
+            if btn and input("Click the apply button and capture the first form step (nothing is submitted)? (y/n): ").strip().lower() == "y":
+                btn.click()
+                time.sleep(6)
+                console.print(f"  apply UI: {li.ui_state(page)}")
+                dump(page, "2_apply")
+                input("Move through more steps manually if you like, press ENTER to capture again...")
+                dump(page, "3_apply")
+                li.close_modal(page)
+        else:
+            console.print(f"  application system: {detect_ats(page.url, page)}")
+            input("Navigate to the form if needed, then press ENTER to capture...")
+            dump(page, "2_form")
+        ctx.close()
+    print_success(f"Captured to {out}")
+
 
 def review():
     db = Database(settings.DB_PATH)
     jobs = db.get_jobs_for_manual_review()
-
     print_header("Jobs Needing Manual Review")
-
     if not jobs:
         print_info("No jobs need manual review!")
         return
-
     console.print(f"\nFound {len(jobs)} jobs:\n")
-
     for idx, job in enumerate(jobs):
         console.print(f"[cyan][{idx + 1}][/cyan] {job['title']}")
         console.print(f"    Company: {job['company']}")
@@ -451,245 +433,145 @@ def review():
         console.print(f"    URL: {job['url']}")
         console.print()
 
+
 def search():
     print_header("Search Jobs")
-
     keyword = input("Enter search term (company name, job title, or keyword): ").strip()
-
     if not keyword:
         print_warning("No search term entered.")
         return
-
     db = Database(settings.DB_PATH)
     results = db.search_jobs(keyword)
-
     if not results:
         print_info(f"No jobs found matching '{keyword}'")
         return
-
     console.print(f"\n[green]Found {len(results)} job(s) matching '{keyword}':[/green]\n")
-
     for idx, job in enumerate(results):
         console.print(f"[cyan]{'=' * 70}[/cyan]")
         console.print(f"[bold][{idx + 1}] {job['title']}[/bold]")
         console.print(f"[cyan]Company:[/cyan] {job['company']}")
         console.print(f"[cyan]URL:[/cyan] {job['url']}")
         console.print(f"[cyan]Scraped:[/cyan] {job['scraped_at']}")
-
         if job['evaluation']:
-            eval_data = job['evaluation']
-            apply_status = "[green]YES[/green]" if eval_data['apply'] else "[red]NO[/red]"
-            console.print(f"\n[yellow]AI Evaluation:[/yellow]")
-            console.print(f"  Apply: {apply_status}")
-            console.print(f"  Confidence: {eval_data['confidence']}%")
-            console.print(f"  Reason: {eval_data['reason']}")
+            e = job['evaluation']
+            console.print(f"\n[yellow]AI Evaluation:[/yellow] {'[green]YES[/green]' if e['apply'] else '[red]NO[/red]'} {e['confidence']}% - {e['reason']}")
         else:
-            console.print(f"\n[dim]Not yet evaluated[/dim]")
-
+            console.print("\n[dim]Not yet evaluated[/dim]")
         if job['application']:
-            app_data = job['application']
-            status_colors = {
-                'success': 'green',
-                'error': 'red',
-                'manual_review_needed': 'yellow',
-                'skipped': 'dim'
-            }
-            color = status_colors.get(app_data['status'], 'white')
-            console.print(f"\n[yellow]Application:[/yellow]")
-            console.print(f"  Status: [{color}]{app_data['status']}[/{color}]")
-            if app_data['error_message']:
-                console.print(f"  Error: {app_data['error_message']}")
-            console.print(f"  Applied: {app_data['applied_at']}")
+            a = job['application']
+            console.print(f"[yellow]Application:[/yellow] {a['status']} {a['error_message'] or ''} ({a['applied_at']})")
         else:
-            console.print(f"\n[dim]Not yet applied[/dim]")
-
+            console.print("[dim]Not yet applied[/dim]")
         if job['description']:
-            desc_preview = job['description'][:300] + "..." if len(job['description']) > 300 else job['description']
-            console.print(f"\n[yellow]Description Preview:[/yellow]")
-            console.print(f"  {desc_preview}")
-
+            console.print(f"\n[yellow]Description:[/yellow] {job['description'][:300]}...")
         console.print()
-
-    # Option to view full description
     console.print(f"[cyan]{'=' * 70}[/cyan]")
-    view_full = input("\nEnter job number to view full description (or press Enter to exit): ").strip()
+    pick = input("\nEnter job number to view full description (or press Enter to exit): ").strip()
+    if pick.isdigit() and 0 < int(pick) <= len(results):
+        job = results[int(pick) - 1]
+        console.print(f"\n[bold]{job['title']} at {job['company']}[/bold]\n")
+        console.print(job['description'] or "[dim]No description available[/dim]")
 
-    if view_full.isdigit():
-        job_idx = int(view_full) - 1
-        if 0 <= job_idx < len(results):
-            job = results[job_idx]
-            console.print(f"\n[bold]Full Description for: {job['title']} at {job['company']}[/bold]\n")
-            console.print(job['description'] or "[dim]No description available[/dim]")
-            console.print()
 
 def reset_db():
     print_header("Reset Database")
-    console.print("[yellow]⚠ This will delete ALL data:[/yellow]")
-    console.print("  - All job records")
-    console.print("  - All applications")
-    console.print("  - All evaluations")
-    console.print("  - Daily statistics\n")
-
-    confirm = input("Are you SURE? Type 'DELETE ALL' to confirm: ").strip()
-
-    if confirm == "DELETE ALL":
+    console.print("[yellow]⚠ This deletes ALL jobs, evaluations, applications, saved answers and stats.[/yellow]\n")
+    if input("Type 'DELETE ALL' to confirm: ").strip() == "DELETE ALL":
         if os.path.exists(settings.DB_PATH):
             os.remove(settings.DB_PATH)
-            print_success("Database deleted!")
-            console.print("A fresh database will be created on next run.")
+            print_success("Database deleted - a fresh one is created on next run.")
         else:
-            print_info("Database doesn't exist - nothing to delete.")
+            print_info("Database doesn't exist.")
     else:
         console.print("[yellow]Cancelled.[/yellow]")
 
+
 def run_interview_cmd(job_input: str = None):
-    """Launch the interview assistant, optionally with a job from the database."""
     from src.services.interview_runner import run_interview
-
     print_header("Interview Assistant")
-
     db = Database(settings.DB_PATH)
     job_data = None
-
     if not job_input:
-        console.print("Enter a LinkedIn job number, URL, or search keyword to load job context.")
-        console.print("Or press Enter to run without job context.\n")
-        job_input = input("Job number/URL/keyword (or Enter to skip): ").strip()
-
+        console.print("Enter a LinkedIn job number, URL, or search keyword to load job context (Enter to skip).")
+        job_input = input("Job number/URL/keyword: ").strip()
     if job_input:
-        # Try as LinkedIn job number first
-        job_number = job_input.strip().rstrip('/')
-        if job_number.startswith('http'):
-            job_number = job_number.split('?')[0].rstrip('/').split('/')[-1]
-
-        if job_number.isdigit():
-            job_data = db.get_job_by_linkedin_id(job_number)
-
-        # If not found by ID, try keyword search
-        if not job_data and not job_number.isdigit():
+        num = job_input.strip().rstrip('/')
+        if num.startswith('http'):
+            num = num.split('?')[0].rstrip('/').split('/')[-1]
+        if num.isdigit():
+            job_data = db.get_job_by_linkedin_id(num)
+        if not job_data and not num.isdigit():
             results = db.search_jobs(job_input)
             if results:
-                console.print(f"\n[green]Found {len(results)} matching job(s):[/green]\n")
                 for idx, j in enumerate(results[:10]):
                     console.print(f"  [{idx + 1}] {j['title']} at {j['company']}")
                 pick = input("\nSelect job number (or Enter to skip): ").strip()
                 if pick.isdigit() and 1 <= int(pick) <= len(results):
                     job_data = results[int(pick) - 1]
-
-        if job_data:
-            console.print(f"\n[green]Loaded:[/green] {job_data.get('title', '?')} at {job_data.get('company', '?')}")
-        else:
-            console.print(f"\n[yellow]Job '{job_input}' not found in database. Running without job context.[/yellow]")
-
+        console.print(f"\n[green]Loaded:[/green] {job_data['title']} at {job_data['company']}" if job_data else "[yellow]Running without job context.[/yellow]")
     run_interview(job_data)
+
+
+MENU = [
+    ("1", "Run automation (manual approval)", "run", {"MANUAL_APPROVAL": True, "DRY_RUN": False}),
+    ("2", "Run automation (auto mode - no approval)", "run", {"MANUAL_APPROVAL": False, "DRY_RUN": False}),
+    ("3", "Dry run (fill forms, never submit)", "run", {"DRY_RUN": True}),
+    ("4", "Setup (log in to LinkedIn / sites in the bot browser)", "setup", {}),
+    ("5", "View statistics", "stats", {}),
+    ("6", "Review jobs needing manual attention", "review", {}),
+    ("7", "Reset database", "reset", {}),
+    ("8", "Retry failed/manual jobs", "retry", {}),
+    ("9", "Search jobs", "search", {}),
+    ("10", "Apply to a specific job (LinkedIn URL/number or any application URL)", "apply", {"MANUAL_APPROVAL": True, "DRY_RUN": False}),
+    ("11", "Interview assistant", "interview", {}),
+    ("12", "Review saved answers (answer bank)", "answers", {}),
+    ("13", "External applications queue (assisted)", "external", {}),
+    ("14", "Doctor (check keys, models, CVs, browser)", "doctor", {}),
+    ("15", "Capture page structure (debug)", "capture", {}),
+]
 
 
 def main():
     if len(sys.argv) < 2:
-        print_header("LinkedIn Auto-Apply")
-        console.print("What would you like to do?\n")
-        console.print("[1] Run automation (with manual approval)")
-        console.print("[2] Run automation (auto mode - no approval)")
-        console.print("[3] Dry run (show what would happen, don't submit)")
-        console.print("[4] Setup (login to LinkedIn)")
-        console.print("[5] View statistics")
-        console.print("[6] Review jobs needing manual attention")
-        console.print("[7] Reset database (clear all data)")
-        console.print("[8] Retry ALL failed/manual jobs (Auto Mode)")
-        console.print("[9] Search jobs (find by company/title/keyword)")
-        console.print("[10] Apply to specific job (URL or job number)")
-        console.print("[11] Interview assistant (real-time AI prompts)\n")
-
-        choice = input("Enter choice (1-11): ").strip()
-
-        if choice == "1":
-            command = "run"
-            settings.MANUAL_APPROVAL = True
-            settings.DRY_RUN = False
-        elif choice == "2":
-            command = "run"
-            settings.MANUAL_APPROVAL = False
-            settings.DRY_RUN = False
-            console.print("\n[red]⚠ WARNING: Auto mode will submit applications without asking![/red]")
-            confirm = input("Are you sure? (yes/no): ").strip().lower()
-            if confirm != "yes":
-                console.print("[yellow]Cancelled. Use option 1 for manual approval.[/yellow]")
-                return
-        elif choice == "3":
-            command = "run"
-            settings.DRY_RUN = True
-        elif choice == "4":
-            command = "setup"
-        elif choice == "5":
-            command = "stats"
-        elif choice == "6":
-            command = "review"
-        elif choice == "7":
-            command = "reset"
-        elif choice == "8":
-            command = "retry"
-            settings.MANUAL_APPROVAL = False
-            settings.DRY_RUN = False
-        elif choice == "9":
-            command = "search"
-        elif choice == "10":
-            command = "apply"
-            settings.MANUAL_APPROVAL = True
-            settings.DRY_RUN = False
-        elif choice == "11":
-            command = "interview"
-        else:
-            console.print("[red]Invalid choice. Exiting.[/red]")
+        print_header("LinkedIn Boss v2")
+        for k, label, _, _ in MENU:
+            console.print(f"[{k}] {label}")
+        choice = input("\nEnter choice: ").strip()
+        item = next((m for m in MENU if m[0] == choice), None)
+        if not item:
+            console.print("[red]Invalid choice.[/red]")
             return
-
-        console.print()
+        _, _, command, overrides = item
+        for k, v in overrides.items():
+            setattr(settings, k, v)
+        if choice == "2" and input("[!] Auto mode submits without asking. Type 'yes' to continue: ").strip().lower() != "yes":
+            return
+        arg = None
     else:
         command = sys.argv[1].lower()
-
-        if '--dry-run' in sys.argv:
+        arg = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("--") else None
+        if "--dry-run" in sys.argv:
             settings.DRY_RUN = True
-            console.print("[yellow]Dry run mode enabled[/yellow]")
-        if '--no-approval' in sys.argv:
+        if "--no-approval" in sys.argv:
             settings.MANUAL_APPROVAL = False
-            console.print("[yellow]Manual approval disabled[/yellow]")
-        if '--approval' in sys.argv:
+        if "--approval" in sys.argv:
             settings.MANUAL_APPROVAL = True
-            console.print("[yellow]Manual approval enabled[/yellow]")
-
-    if command == "setup":
-        setup()
-    elif command == "run":
-        run()
-    elif command == "stats":
-        stats()
-    elif command == "review":
-        review()
-    elif command == "reset":
-        reset_db()
-    elif command == "retry":
-        run_retry()
-    elif command == "search":
-        search()
-    elif command == "apply":
-        # Get job input from CLI args or prompt
-        if len(sys.argv) > 2:
-            job_input = sys.argv[2]
-        else:
-            job_input = input("Enter LinkedIn job URL or job number: ").strip()
-            if not job_input:
-                print_warning("No input provided.")
-                return
-        apply_single(job_input)
+        if "--easy-only" in sys.argv:
+            settings.EASY_APPLY_ONLY = True
+    commands = {
+        "setup": setup, "run": run, "stats": stats, "review": review, "reset": reset_db, "retry": run_retry,
+        "search": search, "answers": answers_review, "external": external_queue, "doctor": doctor, "capture": capture,
+    }
+    if command == "apply":
+        apply_single(arg or input("LinkedIn job URL/number or application URL: ").strip())
     elif command == "interview":
-        if len(sys.argv) > 2:
-            job_input = sys.argv[2]
-        else:
-            job_input = None
-        run_interview_cmd(job_input)
+        run_interview_cmd(arg)
+    elif command in commands:
+        commands[command]()
     else:
-        console.print(f"[red]Unknown command: {command}[/red]")
-        console.print("Valid commands: setup, run, stats, review, reset, retry, search, apply, interview")
+        console.print(f"[red]Unknown command: {command}[/red]  Valid: {', '.join(list(commands) + ['apply', 'interview'])}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

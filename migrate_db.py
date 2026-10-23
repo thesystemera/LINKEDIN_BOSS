@@ -3,7 +3,7 @@ import os
 import re
 from collections import Counter
 
-DB_PATH = os.path.join("data", "applications.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "applications.db")
 
 def add_description_column():
     if not os.path.exists(DB_PATH):
@@ -167,6 +167,74 @@ def migrate_to_ids():
     conn.close()
     print("\n✨ SUCCESS: Migration finished successfully.")
 
+V2_COLUMNS = {
+    "jobs": [
+        ("location", "TEXT"), ("workplace", "TEXT"), ("employment_type", "TEXT"), ("salary_text", "TEXT"),
+        ("apply_type", "TEXT"), ("external_url", "TEXT"), ("ats", "TEXT"), ("lane", "TEXT"),
+        ("search_keyword", "TEXT"), ("search_location", "TEXT"), ("norm_title", "TEXT"),
+    ],
+    "evaluations": [
+        ("lane", "TEXT"), ("eligible", "INTEGER"), ("blockers", "TEXT"), ("pay_nzd", "REAL"),
+        ("pay_basis", "TEXT"), ("employment_type", "TEXT"), ("location", "TEXT"),
+    ],
+    "applications": [
+        ("channel", "TEXT"), ("external_url", "TEXT"), ("answers_json", "TEXT"),
+    ],
+}
+
+
+def norm_title(title):
+    t = (title or "").split("\n")[0].lower()
+    t = re.sub(r"\s+with verification$|\(verified job\)", " ", t)
+    t = re.sub(r"[^a-z0-9+#]+", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def apply_v2(db_path=None, verbose=False):
+    db_path = db_path or DB_PATH
+    if not os.path.exists(db_path):
+        return
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    added = []
+    for table, cols in V2_COLUMNS.items():
+        cur.execute(f"PRAGMA table_info({table})")
+        have = {r[1] for r in cur.fetchall()}
+        if not have:
+            continue
+        for name, typ in cols:
+            if name not in have:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
+                added.append(f"{table}.{name}")
+    cur.execute("""CREATE TABLE IF NOT EXISTS search_log (
+        keyword TEXT NOT NULL, location TEXT NOT NULL, last_run TIMESTAMP, results INTEGER DEFAULT 0,
+        PRIMARY KEY (keyword, location))""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS answer_bank (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, qkey TEXT NOT NULL, question TEXT NOT NULL, family TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'global', region TEXT NOT NULL DEFAULT '', options_json TEXT, answer TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', source TEXT, uses INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(qkey, family, region))""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS ai_cache (
+        key TEXT PRIMARY KEY, role TEXT, model TEXT, result_json TEXT NOT NULL,
+        prompt_tokens INTEGER DEFAULT 0, cached_tokens INTEGER DEFAULT 0, thinking_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0,
+        hits INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    cur.execute("PRAGMA table_info(jobs)")
+    rows = cur.execute("SELECT id, title FROM jobs WHERE norm_title IS NULL").fetchall() if any(r[1] == "norm_title" for r in cur.fetchall()) else []
+    if rows:
+        cur.executemany("UPDATE jobs SET norm_title = ? WHERE id = ?", [(norm_title(t), i) for i, t in rows])
+        cur.execute("UPDATE jobs SET title = substr(title, 1, instr(title || char(10), char(10)) - 1) WHERE title LIKE '%' || char(10) || '%'")
+    if rows or added:
+        cur.execute("UPDATE jobs SET apply_type = 'easy' WHERE apply_type IS NULL AND id IN (SELECT job_id FROM applications WHERE status = 'success')")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_company_title ON jobs(company, norm_title)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_apps_job ON applications(job_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_evals_job ON evaluations(job_id)")
+    conn.commit()
+    conn.close()
+    if verbose or added:
+        print(f"✅ v2 schema ready ({len(added)} columns added{', titles normalised' if rows else ''})")
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("DATABASE MIGRATION TOOL")
@@ -174,12 +242,15 @@ if __name__ == "__main__":
     print()
     print("[1] Add description column to jobs table")
     print("[2] Migrate to Job IDs (Deduplicate & Preview)")
+    print("[3] v2 schema (runs automatically on startup too)")
     print()
-    choice = input("Select migration (1 or 2): ").strip()
+    choice = input("Select migration (1, 2 or 3): ").strip()
 
     if choice == "1":
         add_description_column()
     elif choice == "2":
         migrate_to_ids()
+    elif choice == "3":
+        apply_v2(verbose=True)
     else:
         print("Invalid choice")

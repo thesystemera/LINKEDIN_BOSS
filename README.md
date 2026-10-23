@@ -1,219 +1,67 @@
-# LinkedIn Boss 🤖
+# LinkedIn Boss v2
 
-AI-powered LinkedIn Easy Apply automation bot. Scrapes jobs, evaluates fit with Gemini AI, and submits applications automatically.
+Job application bot: scrapes LinkedIn (Easy Apply **and** external postings), evaluates each job with Gemini, and fills/submits applications on LinkedIn Easy Apply and on company application systems (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, JobAdder, SEEK and unknown sites).
 
-Built with Playwright + Google Gemini. Targets 200+ applications over 30 days.
+> Automating LinkedIn breaches its Terms of Service and can get the account restricted. Pacing and a real browser profile reduce, not remove, that risk.
 
-> **Note:** This violates LinkedIn's Terms of Service. Use at your own risk. Rate limiting and human-like behaviour are built in to reduce ban risk.
+## What changed from v1
 
----
-
-## Features
-
-- **Multi-location job search** — searches multiple locations, deduplicates across all
-- **AI job evaluation** — Gemini scores each job against your CV before applying
-- **Two-stage form filling** — Flash model for simple fields, Pro model for cover letters only (cost optimised)
-- **Manual approval mode** — review each application before it submits
-- **Dry run mode** — see what would happen without submitting anything
-- **Validation retry** — automatically fixes form validation errors (e.g. "enter a whole number")
-- **Interview assistant** — real-time AI hints during interviews via audio transcription
-- **Debug HTML capture** — saves LinkedIn modal HTML when forms fail, for selector debugging
-
----
+| Area | v1 | v2 |
+|---|---|---|
+| Easy Apply | Waited for `[role=dialog]` in the main page; failed on ~35% of jobs once LinkedIn moved the apply flow into an iframe | Generic form engine scans every frame, finds fields by label/role, not CSS classes |
+| Coverage | Easy Apply only | External applications followed into the company's application system |
+| Answers | One Gemini call per page, no memory | Profile facts → saved answers (answer bank) → AI; AI answers saved only after a successful submit; you can approve/edit/reject them |
+| Uploads | Bailed on any file field | Uploads the CV for the role type; writes and uploads a tailored cover letter |
+| Validation | One retry on LinkedIn only | AI fix + retry on any system; failed answers are dropped from the bank |
+| Stuck pages | Gave up | Vision assist (screenshot + Gemini picks the next button) |
+| Queue | Ordered by AI confidence | Ordered by stated/estimated pay (NZD), stale listings dropped, reposts skipped |
+| Browser | Fresh Chromium + cookie file | Persistent profile in real Chrome (keeps LinkedIn, SEEK, Workday logins) |
+| Search | 40 keywords × 3 locations every run | Keyword lanes × locations (NZ, Sydney, Melbourne, AU remote, worldwide remote), rotated across runs; contract + permanent |
 
 ## Setup
 
-### 1. Install dependencies
-
 ```bash
-pip install -r requirements.txt
-playwright install chromium
+pip install -U -r requirements.txt
+playwright install chromium        # only needed if Google Chrome isn't installed
+cp .env.example .env               # add GEMINI_API_KEY (and optionally ATS_ACCOUNT_EMAIL/PASSWORD)
+python src/main.py doctor          # checks key, picks Gemini models, CV files, browser
+python src/main.py setup           # log in to LinkedIn in the bot's browser profile
 ```
 
-### 2. Get a Gemini API key
-
-Get one free at [Google AI Studio](https://aistudio.google.com/app/apikey), then:
-
-```bash
-mkdir -p src/keys
-echo "YOUR_API_KEY_HERE" > src/keys/gemini_key.txt
-```
-
-### 3. Set up your CV data
-
-```bash
-cp src/services/cv_data_example.py src/services/cv_data.py
-```
-
-Edit `src/services/cv_data.py` with your own details — this is the single source of truth the AI uses for all form filling, evaluation, and cover letters.
-
-### 4. Configure your search
-
-Edit `src/config.py`:
-
-```python
-SEARCH_KEYWORDS = ["software engineer", "your job title"]
-SEARCH_LOCATIONS = ["Your City", "Your Country"]
-```
-
-### 5. Login to LinkedIn
-
-```bash
-python src/main.py setup
-```
-
-A browser window will open. Log in manually. Your session is saved for future runs.
-
----
+Your profile data lives in `src/services/cv_data.py` (`CV_SUPPLEMENTARY`, `CV_FULL_TEXT`, `APPLICATION_PROFILE`).
+CV files per role type are set in `CV_FILES` in `src/config.py`.
 
 ## Usage
 
 ```bash
-# Interactive menu (recommended)
-python src/main.py
-
-# Direct commands
-python src/main.py run      # Run the full pipeline
-python src/main.py stats    # View statistics
-python src/main.py review   # Jobs needing manual review
-python src/main.py reset    # Clear the database
+python src/main.py                 # menu
+python src/main.py run             # full pipeline, manual approval
+python src/main.py run --dry-run   # fill everything, never submit
+python src/main.py apply <url>     # one job: LinkedIn URL/number or any application page
+python src/main.py answers         # review saved answers
+python src/main.py external        # work through external applications that need you
+python src/main.py capture         # save page HTML/screenshots when something breaks
+python src/main.py stats
 ```
-
-### Interactive menu options
-
-```
-[1] Run automation (with manual approval)
-[2] Run automation (auto mode)
-[3] Dry run (show what would happen, don't submit)
-[4] Setup (login to LinkedIn)
-[5] View statistics
-[6] Review jobs needing manual attention
-[7] Reset database
-[11] Interview assistant
-```
-
----
 
 ## Architecture
 
 ```
-Job Scraping → AI Evaluation → Application Submission
+src/services/
+  browser.py              persistent Chrome profile, login checks
+  job_scraper.py          LinkedIn search (lanes × locations, rotation, repost-safe)
+  job_evaluator.py        description + apply type extraction, eligibility, lane, pay estimate
+  form_engine/
+    dom_scan.js           field/button/error scanner (labels, groups, comboboxes, files, shadow DOM)
+    engine.py             fills fields with real interactions, reads values back
+    matching.py           option matching (exact, yes/no, ranges, fuzzy)
+    answerer.py           profile rules → answer bank → Gemini (short + long-form), cover letters
+  appliers/
+    base.py               step loop: scan → answer → fill → next/review/submit → validate → fix
+    linkedin.py           Easy Apply (iframe-aware) + following external Apply buttons
+    external.py           application-system detection and per-system preparation (login, apply buttons)
+  answer_bank.py          saved answers (approved / unreviewed / rejected)
+  documents.py            CV selection, CV text, cover letter .docx
 ```
 
-1. **Scraper** — searches LinkedIn for Easy Apply jobs across configured locations
-2. **Evaluator** — Gemini scores each job against your CV (Flash model, cheap)
-3. **Applier** — fills forms using two-stage AI (Flash for fields, Pro for cover letters only)
-
-### Cost optimisation
-
-All form fields are sent to Gemini in **one batch call**, not per field. Two-stage triage means the expensive Pro model is only called when there's a cover letter or complex essay. Typical cost: ~$0.02/month.
-
-### Database
-
-SQLite at `data/applications.db`. Four tables: `jobs`, `evaluations`, `applications`, `daily_stats`.
-
----
-
-## Configuration
-
-Key settings in `src/config.py`:
-
-| Setting | Default | Description |
-|---|---|---|
-| `MAX_APPLICATIONS_PER_DAY` | 100 | Hard daily limit |
-| `HEADLESS` | False | Keep False — visible browser looks human |
-| `MANUAL_APPROVAL` | True | Prompt before each submission |
-| `DRY_RUN` | False | Stop before clicking Submit |
-| `ENABLE_VALIDATION_RETRY` | True | Auto-fix form validation errors |
-| `SEARCH_KEYWORDS` | [...] | Job titles to search for |
-| `SEARCH_LOCATIONS` | [...] | Locations to search in |
-
----
-
-## Interview Assistant
-
-Real-time AI hints during interviews. Listens via microphone (Whisper transcription) or manual text input, displays suggestions in large high-contrast text.
-
-```bash
-# With job context from DB
-python src/main.py interview 4346719111
-
-# Generic mode
-python src/main.py interview
-```
-
-Extra dependencies for audio mode:
-```bash
-pip install faster-whisper sounddevice
-```
-
----
-
-## File Structure
-
-```
-src/
-├── main.py                  # Entry point + CLI
-├── config.py                # All configuration
-└── services/
-    ├── cv_data.py           # YOUR CV data (gitignored - you create this)
-    ├── cv_data_example.py   # Template to copy from
-    ├── job_scraper.py       # LinkedIn scraping
-    ├── job_evaluator.py     # Gemini AI evaluation
-    ├── auto_applier.py      # Application submission
-    ├── form_field_filler.py # Form field detection + AI filling
-    ├── database.py          # SQLite operations
-    ├── session_manager.py   # LinkedIn session persistence
-    ├── interview_assistant.py
-    ├── interview_audio.py
-    ├── interview_display.py
-    └── interview_runner.py
-
-data/                        # Gitignored - created on first run
-├── applications.db
-├── linkedin_session.json
-└── debug_html/
-
-src/keys/                    # Gitignored - you create this
-└── gemini_key.txt
-```
-
----
-
-## Troubleshooting
-
-**Scraper finds 0 jobs** — LinkedIn changes HTML structure periodically. Check logs for `[WARNING] Card X: Missing elements`. Save a LinkedIn page to `src/page_structure/` and update selectors in `job_scraper.py`.
-
-**Session expired** — Run `python src/main.py setup` again.
-
-**Form validation errors** — Automatic retry is built in. If still failing, check `data/debug_html/` for captured modal HTML.
-
-**asyncio warnings** — `RuntimeError: Leaving task does not match current task` from nest_asyncio is safe to ignore.
-
----
-
-## Database Migrations
-
-```bash
-python migrate_db.py
-# [1] Add description column
-# [2] Clean duplicate URLs
-```
-
----
-
-## Gemini Models Used
-
-| Purpose | Model |
-|---|---|
-| Job evaluation | gemini-2.5-flash |
-| Form field triage | gemini-2.5-flash |
-| Cover letters | gemini-2.5-pro |
-| Interview sentinel | gemini-2.5-flash-lite |
-| Interview advisor | gemini-2.5-flash |
-
----
-
-## License
-
-MIT — do whatever you want with it.
+Database migrations run automatically at startup (`migrate_db.apply_v2`).

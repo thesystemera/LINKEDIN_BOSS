@@ -1,185 +1,273 @@
 """
-Configuration settings for LinkedIn Auto-Apply system.
+Configuration settings for LinkedIn Boss v2.
 """
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()  # loads .env from project root
+load_dotenv()
+
 
 class Settings:
-    GEMINI_MODEL_FORMS = "gemini-2.5-flash"      # Fast model for form fields
-    GEMINI_MODEL_COVER = "gemini-2.5-pro"        # Best model for cover letters
-    GEMINI_MODEL_EVAL = "gemini-2.5-flash"       # Job evaluation
+    # ── AI models (first available in each chain is used; run `python src/main.py doctor` to verify) ──
+    MODELS = {
+        "eval": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash"],
+        "forms": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash"],
+        "pro": ["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-3.8-flash"],
+        "lite": ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"],
+        "vision": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash"],
+    }
+    GEMINI_MODEL_FORMS = "forms"
+    GEMINI_MODEL_COVER = "pro"
+    GEMINI_MODEL_EVAL = "eval"
     GEMINI_TEMPERATURE = 0.3
     GEMINI_MAX_TOKENS = 8192
 
-    # Manual Approval Settings
-    MANUAL_APPROVAL = True  # Require confirmation before each submit
-    DRY_RUN = False         # If True, stops before clicking submit (just shows what it would do)
+    # ── AI cost controls (same approach as deepPBR) ──
+    THINKING_LEVEL = {"eval": "low", "forms": "low", "pro": "low", "lite": "low", "vision": "low"}  # minimal | low | medium | high
+    AI_RESULT_CACHE = True              # identical request (models + prompt + schema) is answered from the database, no API call
+    AI_CACHE_EPOCH = "1"                # bump to make every older cached answer unreachable
+    AI_CACHE_RETENTION_DAYS = 30
+    AI_CACHE_MAX_ENTRIES = 5000
+    AI_EXPLICIT_CACHE = True            # keep each stable system prompt (instructions + CV) in a Gemini context cache
+    AI_EXPLICIT_CACHE_MIN_TOKENS = 1024 # smaller prompts rely on Gemini's automatic (implicit) prefix cache
+    AI_EXPLICIT_CACHE_TTL_SECONDS = 3600
 
-    # IDE Default Behavior (when running with "play button")
-    DEFAULT_COMMAND = "run"  # Default: run, setup, stats, review
+    # ── Approval / run modes ──
+    MANUAL_APPROVAL = True
+    DRY_RUN = False
+    DEFAULT_COMMAND = "run"
 
-    # Rate Limiting (Aggressive but human-like)
-    MAX_APPLICATIONS_PER_DAY = 80       # ~15 apps/hour for 5 hour session
-    MIN_DELAY_BETWEEN_APPS = 30         # 30 seconds (seconds)
-    MAX_DELAY_BETWEEN_APPS = 120           # 2 minutes (seconds)
-    # Average delay: ~4 minutes = 15 apps/hour (human-plausible)
-    JOB_READ_TIME_MIN = 30  # Seconds to "read" job description
-    JOB_READ_TIME_MAX = 120
+    # ── Rate limiting ──
+    MAX_APPLICATIONS_PER_DAY = 40
+    MIN_DELAY_BETWEEN_APPS = 240
+    MAX_DELAY_BETWEEN_APPS = 480
+    JOB_READ_TIME_MIN = 120
+    JOB_READ_TIME_MAX = 240
+    EXTERNAL_READ_TIME_MIN = 20
+    EXTERNAL_READ_TIME_MAX = 60
 
-    # Job Scraping
-    MAX_JOBS_TO_SCRAPE = 100
-    SCROLL_PAUSE_TIME = 2
+    # ── Browser ──
+    HEADLESS = False
+    SLOW_MO = 50
+    VIEWPORT = {"width": 1920, "height": 1080}
+    BROWSER_CHANNEL = "chrome"          # "chrome" = installed Google Chrome (less detectable); None = bundled Chromium
+    HUMAN_TYPING = True
 
-    USE_SEARCH_MODE = True
-    # SEARCH_LOCATIONS = ["New Zealand", "Melbourne", "Sydney", "China", "Singapore", "Hong Kong"]
-    SEARCH_LOCATIONS = ["New Zealand", "Melbourne", "Sydney"]
-    SEARCH_DATE_FILTER = "r604800"
+    # ── Scraping ──
+    MAX_JOBS_TO_SCRAPE = 150
+    SCROLL_PAUSE_TIME = 4
+    MAX_PAGES_PER_SEARCH = 2
+    MAX_SEARCHES_PER_RUN = 24
+    SEARCH_DATE_FILTER = "r604800"      # r86400 = 24h, r604800 = week, r2592000 = month
+    EASY_APPLY_ONLY = False             # False = scrape everything; external applications go through the ATS appliers
+    SEARCH_SORT = "DD"                  # DD = newest first, R = relevance
+    JOB_TYPES = "F,C,T"                 # F full-time, C contract, T temporary, P part-time
 
-    SEARCH_KEYWORDS = [
-        # Primary targets
-        "solutions architect",
-        "technical architect",
-        "platform architect",
-        "principal architect",
-        "staff architect",
+    # location key -> (LinkedIn geoId, workplace filter: None | "1" onsite | "2" remote | "3" hybrid | "1,2,3")
+    SEARCH_LOCATIONS = {
+        "New Zealand": ("105490917", None),
+        "Sydney": ("104769905", None),
+        "Melbourne": ("100992797", None),
+        "Australia (remote)": ("101452733", "2"),
+        "Australia": ("101452733", None),
+        "Worldwide (remote)": ("92000000", "2"),
+    }
 
-        # Technical leadership
-        "technical lead",
-        "engineering lead",
-        "head of engineering",
+    SEARCH_LANES = {
+        "fde": [
+            "forward deployed engineer",
+            "ai deployment engineer",
+            "solutions engineer ai",
+            "applied ai engineer",
+            "customer engineer ai",
+        ],
+        "applied_ai": [
+            "ai engineer",
+            "llm engineer",
+            "generative ai engineer",
+            "machine learning engineer",
+            "ai architect",
+            "ai product engineer",
+            "conversational ai engineer",
+        ],
+        "graphics_3d_cv": [
+            "graphics engineer",
+            "computer vision engineer",
+            "3d engineer",
+            "rendering engineer",
+            "xr engineer",
+            "creative technologist",
+            "photogrammetry",
+            "unreal engine developer",
+            "technical director",
+            "vfx pipeline",
+            "virtual production",
+            "immersive technology",
+            "real-time 3d",
+        ],
+        "audio_media": [
+            "audio software engineer",
+            "audio ai",
+            "dsp engineer",
+            "music technology",
+            "media technology",
+        ],
+        "platform_arch": [
+            "solutions architect",
+            "platform architect",
+            "technical architect",
+            "senior platform engineer",
+            "senior backend engineer",
+            "python developer",
+            "senior software engineer",
+            "staff engineer",
+            "principal engineer",
+        ],
+        "leadership": [
+            "head of engineering",
+            "engineering manager",
+            "technical lead",
+            "lead engineer",
+            "cto",
+            "head of ai",
+            "director of engineering",
+            "founding engineer",
+            "ai consultant",
+        ],
+    }
 
-        # Domain-specific architect roles
-        "ai architect",
-        "ml architect",
-
-        # Creative/visual (your differentiator)
-        "xr architect",
-        "graphics architect",
-        "creative technologist",
-        "computer vision engineer",
-        "vfx technical director",
-
-        # Fallback senior roles (architecture-focused)
-        "senior platform engineer",
-        "staff engineer",
-        "principal engineer",
-    ]
-
-    # Gemini Evaluation
-    CONFIDENCE_THRESHOLD = 60
+    # ── Evaluation ──
+    CONFIDENCE_THRESHOLD = 50           # volume strategy: apply wherever there's a realistic shot
     GEMINI_MAX_RETRIES = 3
-
     USE_PREFILTER = True
     PREFILTER_BATCH_SIZE = 100
+    REPOST_COOLDOWN_DAYS = 45           # skip same company + same title if applied within this window
+    SORT_QUEUE_BY_PAY = True
+    QUEUE_MAX_AGE_DAYS = 21             # approved jobs older than this are ignored (listings go stale)
+    FX_TO_NZD = {"NZD": 1.0, "AUD": 1.10, "USD": 1.72, "EUR": 1.90, "GBP": 2.22, "SGD": 1.30, "CAD": 1.24}
+    WORK_DAYS_PER_YEAR = 220
+    WORK_HOURS_PER_YEAR = 1760
 
-    # Form Validation Retry Settings
-    ENABLE_VALIDATION_RETRY = True  # Enable AI retry when validation fails
-    MAX_VALIDATION_RETRIES = 1      # Max retries per form page (1 = one retry, total 2 attempts)
+    # ── Applying ──
+    ENABLE_VALIDATION_RETRY = True
+    MAX_VALIDATION_RETRIES = 1
+    RETRY_MAX_AGE_DAYS = 14
+    MAX_FORM_STEPS = 25
+    EXTERNAL_APPLY = True
+    # auto-submit allowed per application system when MANUAL_APPROVAL is off; others stop for you before submit
+    EXTERNAL_AUTO_SUBMIT = {
+        "greenhouse": True, "lever": True, "ashby": True, "workable": True, "smartrecruiters": True,
+        "jobadder": True, "recruitee": True, "teamtailor": True, "breezy": True, "bamboohr": True,
+        "workday": False, "seek": False, "pageup": False, "icims": False, "successfactors": False,
+        "taleo": False, "jobvite": False, "generic": False,
+    }
+    VISION_ASSIST = True                # screenshot + Gemini picks the next step when the DOM loop gets stuck
+    EEO_POLICY = "decline"              # voluntary diversity questions: "decline" picks prefer-not-to-say options
+    FILL_OPTIONAL_LONGFORM = False      # optional essay boxes (other than cover letters) left blank
+    GENERATE_COVER_LETTERS = True       # write a tailored letter when a cover letter field/upload exists
+    ANSWER_BANK_REUSE_PENDING = True    # reuse AI answers you haven't reviewed yet (tagged 'saved-unreviewed' in summaries)
+    MENTION_APPLICATION_BOT = False     # False = cover letters/answers never mention this bot (cv_data meta_automation is withheld)
 
-    # Retry Settings
-    RETRY_MAX_AGE_DAYS = 14         # Only retry jobs scraped within this many days
+    CV_FILES = {
+        "default": "Data/Simon_Che_de_Boer_CV_AIPlatform.docx",
+        "applied_ai": "Data/Simon_Che_de_Boer_CV_AIPlatform.docx",
+        "fde": "Data/Simon_Che_de_Boer_CV_AIPlatform.docx",
+        "platform_arch": "Data/Simon_Che_de_Boer_CV_MLOps.docx",
+        "leadership": "Data/Simon_Che_de_Boer_CV_AIPlatform.docx",
+        "graphics_3d_cv": "Data/Simon_Che_de_Boer_CV_AIPlatform.docx",
+    }
 
-    # Interview Assistant Settings (Two-Tier Architecture)
-    # Tier 1: Sentinel - lightweight, fires every chunk, detects questions/answers
-    INTERVIEW_SENTINEL_MODEL = "gemini-2.5-flash-lite"  # $0.10/1M input - cheapest 2.5 model
-    INTERVIEW_SENTINEL_MAX_TOKENS = 200  # Just needs "QUESTION: text" or "WAITING"
-    # Tier 2: Advisor - full context, fires only when Sentinel detects something
-    INTERVIEW_ADVISOR_MODEL = "gemini-2.5-flash-lite"  # Testing if flash-lite is faster
+    # ── Interview Assistant ──
+    INTERVIEW_SENTINEL_MODEL = "gemini-2.5-flash-lite"
+    INTERVIEW_SENTINEL_MAX_TOKENS = 200
+    INTERVIEW_ADVISOR_MODEL = "gemini-2.5-flash-lite"
     INTERVIEW_ADVISOR_MAX_TOKENS = 4096
-
-    # Audio settings
-    INTERVIEW_SAMPLE_RATE = 16000        # Whisper expects 16kHz
-    INTERVIEW_CHUNK_DURATION = 3         # Seconds per transcription chunk
-    INTERVIEW_SILENCE_THRESHOLD = 0.01   # VAD threshold
-    INTERVIEW_WHISPER_MODEL = "large-v3"  # Best quality - faster-whisper optimizes with CTranslate2
-    INTERVIEW_WHISPER_DEVICE = "cuda"    # "cuda" or "cpu"
-    INTERVIEW_WHISPER_COMPUTE_TYPE = "float16"  # "float16" for GPU, "int8" for CPU
-
-    # Display settings (high contrast for low vision)
-    INTERVIEW_DISPLAY_FONT_SIZE = 72     # Reduced for less glare
-    INTERVIEW_DISPLAY_BG = "#000000"     # Black background
-    INTERVIEW_DISPLAY_FG = "#FFFF00"     # Yellow text
+    INTERVIEW_SAMPLE_RATE = 16000
+    INTERVIEW_CHUNK_DURATION = 3
+    INTERVIEW_SILENCE_THRESHOLD = 0.01
+    INTERVIEW_WHISPER_MODEL = "large-v3"
+    INTERVIEW_WHISPER_DEVICE = "cuda"
+    INTERVIEW_WHISPER_COMPUTE_TYPE = "float16"
+    INTERVIEW_DISPLAY_FONT_SIZE = 72
+    INTERVIEW_DISPLAY_BG = "#000000"
+    INTERVIEW_DISPLAY_FG = "#FFFF00"
     INTERVIEW_DISPLAY_WIDTH = 1400
     INTERVIEW_DISPLAY_HEIGHT = 500
 
-    # Browser Configuration
-    HEADLESS = False  # MUST be False to avoid detection
-    SLOW_MO = 50  # Milliseconds between Playwright actions
-    VIEWPORT = {"width": 1920, "height": 1080}
-
-    # LinkedIn Selectors (adjust if LinkedIn changes their HTML - updated Jan 2026)
-    SELECTORS = {
-        "easy_apply_button": '[data-view-name="job-apply-button"], [aria-label*="Easy Apply"], .jobs-apply-button',
-        "next_button": 'button[aria-label*="Continue"], button:has-text("Next")',
-        "submit_button": 'button[aria-label*="Submit application"]',
-        "review_button": 'button[aria-label*="Review"]',
-        "close_button": 'button[aria-label*="Dismiss"]',
-    }
-
+    # ── Paths ──
     BASE_DIR = Path(__file__).parent.parent
     DATA_DIR = BASE_DIR / "data"
     DB_PATH = str(DATA_DIR / "applications.db")
     SESSION_PATH = str(DATA_DIR / "linkedin_session.json")
+    PROFILE_DIR = DATA_DIR / "browser_profile"
     LOGS_DIR = DATA_DIR / "logs"
+    DEBUG_DIR = DATA_DIR / "debug_html"
+    FIXTURE_DIR = DATA_DIR / "fixtures"
+    COVER_LETTER_DIR = DATA_DIR / "cover_letters"
     KEYS_DIR = BASE_DIR / "src" / "keys"
 
     @staticmethod
     def load_api_key_from_file(key_name: str) -> str | None:
-        # 1. Check .env / environment variable first (GEMINI_KEY or GEMINI_API_KEY)
-        env_var = key_name.upper()  # gemini_key -> GEMINI_KEY
+        env_var = key_name.upper()
         value = os.environ.get(env_var) or os.environ.get("GEMINI_API_KEY")
         if value:
-            return value
-        # 2. Fall back to legacy txt file
-        key_file = Settings.KEYS_DIR / f"{key_name}.txt"
+            return value.strip()
+        key_file = settings.KEYS_DIR / f"{key_name}.txt"
         if key_file.exists():
-            with open(key_file, 'r') as f:
-                return f.read().strip()
+            return key_file.read_text().strip()
         return None
 
     @staticmethod
-    def get_geo_id(location: str) -> str:
-        """Get LinkedIn geoId for a location"""
-        geo_ids = {
-            "New Zealand": "105490917",
-            "Melbourne": "100992797",
-            "Sydney": "104769905",
-            # "Shanghai": "102772228",
-            # "Shenzhen": "106750182",
-            # "Beijing": "103873152",
-            # "Singapore": "102454443",
-            # "Hong Kong": "103291313",
-            # "China": "102890883",
-        }
-        return geo_ids.get(location, "105490917")
+    def env(name: str, default: str = None) -> str | None:
+        v = os.environ.get(name)
+        return v.strip() if v else default
 
     @staticmethod
-    def build_search_url(location: str = None, keyword: str = None) -> str:
-        """Build LinkedIn search URL with filters for a single keyword"""
-        if location is None:
-            location = Settings.SEARCH_LOCATIONS[0]
+    def all_keywords() -> list:
+        out = []
+        for lane, kws in settings.SEARCH_LANES.items():
+            out += [(lane, k) for k in kws]
+        return out
 
-        geo_id = Settings.get_geo_id(location)
+    @staticmethod
+    def build_search_url(location_key: str, keyword: str, start: int = 0) -> str:
+        geo, workplace = settings.SEARCH_LOCATIONS[location_key]
+        params = [
+            f"keywords={keyword.replace(' ', '%20')}",
+            f"geoId={geo}",
+            f"f_TPR={settings.SEARCH_DATE_FILTER}",
+            f"sortBy={settings.SEARCH_SORT}",
+        ]
+        if settings.EASY_APPLY_ONLY:
+            params.append("f_AL=true")
+        if workplace:
+            params.append(f"f_WT={workplace.replace(',', '%2C')}")
+        if settings.JOB_TYPES:
+            params.append(f"f_JT={settings.JOB_TYPES.replace(',', '%2C')}")
+        if start:
+            params.append(f"start={start}")
+        return "https://www.linkedin.com/jobs/search/?" + "&".join(params)
 
-        url = f"https://www.linkedin.com/jobs/search/?f_AL=true&f_TPR={Settings.SEARCH_DATE_FILTER}&geoId={geo_id}"
-
-        if keyword:
-            encoded_keyword = keyword.replace(" ", "%20")
-            url += f"&keywords={encoded_keyword}"
-
-        url += "&sortBy=R"
-        return url
+    @staticmethod
+    def cv_for_lane(lane: str | None) -> Path | None:
+        rel = settings.CV_FILES.get(lane or "default") or settings.CV_FILES.get("default")
+        if not rel:
+            return None
+        p = Path(rel)
+        if not p.is_absolute():
+            p = settings.BASE_DIR / rel
+        if p.exists():
+            return p
+        alt = settings.BASE_DIR / rel.replace("Data/", "data/")
+        return alt if alt.exists() else None
 
     @staticmethod
     def ensure_directories():
-        """Create necessary directories if they don't exist"""
-        Settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        Settings.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-        Settings.KEYS_DIR.mkdir(parents=True, exist_ok=True)
+        for d in (settings.DATA_DIR, settings.LOGS_DIR, settings.KEYS_DIR, settings.DEBUG_DIR,
+                  settings.FIXTURE_DIR, settings.COVER_LETTER_DIR, settings.PROFILE_DIR):
+            d.mkdir(parents=True, exist_ok=True)
+
 
 settings = Settings()
-
 settings.ensure_directories()

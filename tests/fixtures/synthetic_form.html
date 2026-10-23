@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Synthetic ATS</title>
+<style>.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)} .listbox{border:1px solid #999;position:absolute;background:#fff;z-index:9} .opt{padding:4px}</style></head>
+<body><h1>Apply: Forward Deployed Engineer</h1><button type="button" onclick="document.getElementById('app').scrollIntoView()">Apply</button><button type="button">Apply with LinkedIn</button>
+<form id="app">
+ <div class="field"><label for="first_name">First Name*</label><input id="first_name" name="first_name" required autocomplete="given-name"></div>
+ <div class="field"><label for="last_name">Last Name*</label><input id="last_name" name="last_name" required></div>
+ <div class="field"><label for="email">Email*</label><input id="email" type="email" required></div>
+ <div class="field"><label for="phone">Phone</label><input id="phone" type="tel"></div>
+ <div class="field"><label for="years">How many years of Python experience do you have?</label><input id="years" inputmode="numeric"></div>
+ <div class="field"><label for="country">Country</label><select id="country"><option value="">Select...</option><option>Australia</option><option>New Zealand</option><option>United States</option></select></div>
+ <div class="application-question"><div class="application-label"><div class="text">Are you legally authorized to work in New Zealand?<span>✱</span></div></div>
+   <ul><li><label><input type="radio" name="cards[1][field0]" value="Yes" required> Yes</label></li><li><label><input type="radio" name="cards[1][field0]" value="No"> No</label></li></ul></div>
+ <div class="application-question"><div class="application-label"><div class="text">Languages (check all that apply)</div></div>
+   <ul><li><label><input type="checkbox" name="langs" value="English"> English</label></li><li><label><input type="checkbox" name="langs" value="French"> French</label></li><li><label><input type="checkbox" name="langs" value="Māori"> Māori</label></li></ul></div>
+ <div class="field" data-field-path="sponsor"><label>Will you require visa sponsorship?</label>
+   <div class="_yesno_1e3gg ashby-application-form-input-yesno yesno"><button type="button" class="ashby-application-form-input-yesno-option" aria-pressed="false" data-option="yes">Yes</button><button type="button" class="ashby-application-form-input-yesno-option" aria-pressed="false" data-option="no">No</button><input type="checkbox" style="display:none"></div></div>
+ <div class="field select__container"><label id="loc-label" for="loc">Current location*</label>
+   <input id="loc" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="loc-list" required autocomplete="off">
+   <div id="loc-list" role="listbox" class="listbox" style="display:none"></div></div>
+ <div class="field"><label id="hear-label">How did you hear about us?</label>
+   <button type="button" id="hear" aria-haspopup="listbox" aria-labelledby="hear-label">Select One</button>
+   <ul id="hear-list" role="listbox" class="listbox" style="display:none"><li role="option">LinkedIn</li><li role="option">Referral</li><li role="option">Company website</li></ul></div>
+ <div class="field"><label for="salary">Expected salary (NZD)</label><select id="salary"><option value="">Choose</option><option>$100,000 - $140,000</option><option>$140,000 - $180,000</option><option>$180,000+</option></select></div>
+ <div class="field"><label for="why">Why do you want to join us?*</label><textarea id="why" required maxlength="400"></textarea></div>
+ <div class="field"><label>Resume/CV*</label><button type="button" onclick="document.getElementById('resume').click()">Attach</button><input type="file" id="resume" class="visually-hidden" required><span id="resume-name">Attach a .pdf or .docx file</span></div>
+ <div class="field"><label><input type="checkbox" id="consent" required> I confirm the information provided is accurate</label></div>
+ <button type="submit">Submit application</button>
+</form>
+<div id="done" style="display:none"><h2>Thank you for applying!</h2></div>
+<script>
+const cities=["Auckland, New Zealand","Auckland Central, Auckland","Wellington, New Zealand","Sydney, Australia","Melbourne, Australia"];
+const loc=document.getElementById('loc'), list=document.getElementById('loc-list');
+function render(q){list.innerHTML='';const m=cities.filter(c=>c.toLowerCase().includes((q||'').toLowerCase()));m.forEach((c,i)=>{const d=document.createElement('div');d.className='opt';d.setAttribute('role','option');d.id='loc-o'+i;d.textContent=c;d.onmousedown=(e)=>{e.preventDefault();loc.value=c;list.style.display='none';loc.setAttribute('aria-expanded','false')};list.appendChild(d)});list.style.display=m.length?'block':'none';loc.setAttribute('aria-expanded',m.length?'true':'false')}
+loc.addEventListener('focus',()=>render(loc.value));loc.addEventListener('input',()=>render(loc.value));loc.addEventListener('keydown',e=>{if(e.key==='Escape'){list.style.display='none'}});
+const hear=document.getElementById('hear'),hl=document.getElementById('hear-list');
+hear.onclick=()=>{hl.style.display=hl.style.display==='none'?'block':'none'};
+hl.querySelectorAll('[role=option]').forEach(o=>o.onclick=()=>{hear.textContent=o.textContent;hl.style.display='none'});
+document.querySelectorAll('.yesno button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.yesno button').forEach(x=>x.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed','true')});
+document.getElementById('resume').addEventListener('change',e=>{document.getElementById('resume-name').textContent=e.target.files[0].name});
+document.getElementById('app').onsubmit=e=>{e.preventDefault();document.getElementById('app').style.display='none';document.getElementById('done').style.display='block'};
+</script></body></html>

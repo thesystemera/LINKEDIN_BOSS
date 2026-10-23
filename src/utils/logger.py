@@ -1,3 +1,6 @@
+from datetime import datetime
+from pathlib import Path
+
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -43,8 +46,20 @@ LOG_CATEGORIES = {
     "TRANSCRIBE": {"color": "MAGENTA", "enabled": True},
 }
 
+def _to_file(category: str, message: str):
+    """Every message, including categories hidden from the console, goes to data/logs/<date>.log."""
+    try:
+        from src.config import settings
+        now = datetime.now()
+        with open(Path(settings.LOGS_DIR) / f"{now:%Y-%m-%d}.log", "a", encoding="utf-8") as fh:
+            fh.write(f"{now:%H:%M:%S} [{category}] {message}\n")
+    except Exception:
+        pass
+
+
 def custom_print(category: str, message: str):
     config = LOG_CATEGORIES.get(category, {"color": "WHITE", "enabled": True})
+    _to_file(category, message)
 
     if not config['enabled']:
         return
@@ -56,6 +71,7 @@ def custom_print(category: str, message: str):
     print(formatted)
 
 def print_header(text: str):
+    _to_file("HEADER", text)
     console.print(f"\n[bold cyan]{text}[/bold cyan]")
     console.print("=" * 60)
 

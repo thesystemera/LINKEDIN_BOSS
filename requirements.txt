@@ -1,24 +1,13 @@
-# LinkedIn Boss - Core Dependencies
+# LinkedIn Boss v2 - core dependencies
+playwright>=1.48
+google-genai>=2.0
+pydantic>=2.7
+python-dotenv>=1.0
+rich>=13.7
+nest-asyncio>=1.6
+python-docx>=1.1
+pypdf>=4.0
 
-# Browser automation
-playwright==1.41.0
-
-# Gemini AI
-google-genai==0.2.0
-
-# Data validation
-pydantic==2.5.0
-
-# Environment variables
-python-dotenv==1.0.0
-
-# Beautiful CLI output
-rich==13.7.0
-
-# Async nesting (allows asyncio.run() from sync Playwright context)
-nest-asyncio==1.6.0
-
-# ─── Optional: Interview Assistant (audio mode only) ───────────────────────
-# pip install faster-whisper sounddevice
-# faster-whisper    # Whisper transcription
-# sounddevice       # Microphone capture
+# Optional: interview assistant audio mode
+# faster-whisper
+# sounddevice

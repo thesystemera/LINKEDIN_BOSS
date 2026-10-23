@@ -129,3 +129,26 @@ Your Degree | Your Institution | Year
 HONOURS & RECOGNITION
 Any awards, publications, or notable recognition.
 """
+
+APPLICATION_PROFILE = {
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "preferred_name": "Jane",
+    "email": "jane@example.com",
+    "phone_e164": "+64210000000",
+    "phone_national": "210000000",
+    "phone_country": "New Zealand",
+    "phone_country_code": "+64",
+    "location": "Auckland, New Zealand",
+    "city": "Auckland",
+    "region": "Auckland",
+    "country": "New Zealand",
+    "street_address": "",
+    "postcode": "",
+    "linkedin": "https://www.linkedin.com/in/your-profile",
+    "github": "https://github.com/you",
+    "portfolio": "https://example.com",
+    "current_company": "Your Company",
+    "current_title": "Your Title",
+    "how_heard": "LinkedIn",
+}
