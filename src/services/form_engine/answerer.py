@@ -22,7 +22,7 @@ PROFILE_ENTRY_RE = re.compile(r"edit (experience|education)|dates of employment|
 # employer policies on using AI to apply: the application is AI-assisted, so agreeing to them would be untrue
 AI_POLICY_RE = re.compile(r"\bAI (policy|guidelines?|usage|use)\b.{0,60}\b(application|applying|candidates?)\b|\b(application|candidates?)\b.{0,60}\bAI (policy|guidelines?)\b|use of (AI|artificial intelligence) (in|during|for) (your|the|this) application", re.I)
 CONSENT_RE = re.compile(r"\b(i (agree|acknowledge|consent|confirm|certify|declare|understand|have read)|privacy (policy|notice|statement)|terms (and|&) conditions|terms of (use|service)|data (processing|protection)|true and (correct|accurate)|accurate and complete)", re.I)
-MARKETING_RE = re.compile(r"(follow .* to stay up to date|job alerts?|newsletter|marketing|subscribe|keep me (updated|informed)|talent (community|network|pool)|future (opportunities|roles))", re.I)
+MARKETING_RE = re.compile(r"(follow .* to stay up to date|job alerts?|newsletter|marketing|subscribe|keep me (updated|informed)|talent (community|network|pool)|future (job )?(opportunities|roles|openings|positions|vacancies)|e-?mail me about|contact me about (future|other))", re.I)
 LONGFORM_RE = re.compile(r"(cover letter|^\s*(prompt:\s*)?why\b|why (do you|are you|would you|us|this|join)|tell us|describe|explain|motivat|what (excites|interests|attracts)|additional information|anything else|summary|about yourself|proudest|example of|walk us through)", re.I)
 SKIP_PROFILE_RE = re.compile(r"(company name|employer name|\breference|\breferee|\breferr|manager|supervisor|emergency|school|university|college|extension|\bext\b|recruiter|hiring contact)", re.I)
 DECLARATION_RISK_RE = re.compile(r"(authori[sz]ed|right to work|work rights|eligib|citizen|resident|visa|sponsor|clearance|security vetting|licen[cs]e|criminal|convict|offen[cs]e|degree|qualification|graduat|years|experience|certified|certification|hold a|hold an|possess|vaccinat|medical|drug|relocat|willing to|able to|available|own (a )?(car|vehicle)|background check|non-?compete|notice)", re.I)
@@ -137,9 +137,16 @@ class Answerer:
 
         if kind == "checkbox" and (f.raw.get("single") or len(f.options) == 1):
             if MARKETING_RE.search(t):
-                return Answer("No", "default")
+                return Answer("Yes" if f.required else "No", "default")      # opt in only when the form insists
             if CONSENT_RE.search(t) and not DECLARATION_RISK_RE.search(t):
                 return Answer("Yes", "consent")
+        # the same consent / marketing questions as Yes-No choices (terms and conditions are accepted, per the candidate)
+        if kind in ("radio", "select", "toggle", "combobox") and f.options and (MARKETING_RE.search(t) or (CONSENT_RE.search(t) and not DECLARATION_RISK_RE.search(t))):
+            want_yes = not MARKETING_RE.search(t) or f.required
+            rx = r"^(yes|i agree|agree|accept|i accept|i acknowledge|i consent|i have read)\b" if want_yes else r"^(no|decline|do not|don't)\b"
+            opt = next((o for o in f.options if re.search(rx, o.strip(), re.I)), None)
+            if opt:
+                return Answer(opt, "consent" if want_yes else "default")
 
         if re.search(r"pronounc", t):
             return Answer(p.get("name_pronunciation", ""), "profile")
@@ -155,7 +162,7 @@ class Answerer:
                 return Answer("", "profile")
             if ac == "name" or re.fullmatch(r"\s*(full |legal |your )?name\s*[*✱]?\s*", lab) or name in ("name", "full_name", "_systemfield_name"):
                 return Answer(f"{p['first_name']} {p['last_name']}", "profile")
-            if ac == "email" or re.search(r"e-?mail", lab) or f.raw.get("inputType") == "email":
+            if ac == "email" or f.raw.get("inputType") == "email" or (re.search(r"e-?mail", lab) and not MARKETING_RE.search(t) and not re.search(r"e-?mail (me|updates|alerts)", lab)):
                 return Answer(p["email"], "profile")
             if re.search(r"(phone|dial|calling) ?(country )?code|country code|phone country", t):
                 return Answer(f"{p['phone_country']} ({p['phone_country_code']})", "profile")
@@ -181,11 +188,19 @@ class Answerer:
                 return Answer(p["current_title"], "profile")
             if re.search(r"how did you (hear|find|learn)|where did you (hear|see|find|learn)|source of (application|referral)|referral source", t):
                 return Answer(p["how_heard"], "profile")
-            if re.search(r"(street|address line|postal code|post ?code|zip)", lab):
-                if p.get("street_address") and re.search(r"street|address line", lab):
-                    return Answer(p["street_address"], "profile")
-                if p.get("postcode") and re.search(r"postal|post ?code|zip", lab):
-                    return Answer(p["postcode"], "profile")
+            if re.search(r"street|address|postal code|post ?code|zip|suburb", lab) and not re.search(r"e-?mail|web|url|\bip\b", lab):
+                if re.search(r"address line ?2|line 2|apartment|suite", lab):
+                    return Answer("", "profile")
+                if re.search(r"postal code|post ?code|zip", lab):
+                    v = p.get("postcode")
+                elif re.search(r"suburb|district|neighbou?rhood", lab):
+                    v = p.get("suburb")
+                elif re.search(r"street|address line|line 1", lab):
+                    v = p.get("street_address")
+                else:  # one "Address" field wants the whole address
+                    v = p.get("full_address")
+                if v:
+                    return Answer(v, "profile")
                 return Answer("", "profile", 0, needs_human=bool(f.required))
         return None
 

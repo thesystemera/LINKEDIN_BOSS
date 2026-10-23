@@ -370,8 +370,16 @@ APPLICATION_PROFILE = {
     ],
     "postgraduate": "None (no master's or PhD)",
     "open_source": "Publishes his own projects publicly on GitHub (https://github.com/thesystemera); not a regular contributor to other people's open-source projects",
+    "employment_restrictions": "None - self-employed founder; no employment agreement, non-compete or post-employment restriction with any employer",
     # LinkedIn profile entries that have no dates; Easy Apply forms demand them. Approximate, confirmed OK by Simon.
     "work_history_dates": {
         "Media Sculpt": {"from": "January 2005", "to": "December 2006"},
     },
 }
+
+# Private facts (home address) stay out of this public file: data/private_profile.json is git-ignored.
+import json as _json
+from pathlib import Path as _Path
+_PRIVATE = _Path(__file__).resolve().parents[2] / "data" / "private_profile.json"
+if _PRIVATE.exists():
+    APPLICATION_PROFILE.update(_json.loads(_PRIVATE.read_text(encoding="utf-8")))
