@@ -92,11 +92,15 @@ class ExternalApplier:
             pre = None
         if isinstance(pre, ApplyResult):
             pre.channel, pre.external_url = ats, page.url
-            return pre
-        auto = settings.EXTERNAL_AUTO_SUBMIT.get(ats, False)
-        hook = getattr(self, f"_hook_{ats}", self._hook_generic)
-        result = self.runner.run(page, job, ats, root_selector=ROOTS.get(ats), auto_submit=auto, before_step=lambda e, s: hook(page, job, e, s))
-        result.external_url = result.external_url or page.url
+            result = pre
+        else:
+            auto = settings.EXTERNAL_AUTO_SUBMIT.get(ats, False)
+            hook = getattr(self, f"_hook_{ats}", self._hook_generic)
+            result = self.runner.run(page, job, ats, root_selector=ROOTS.get(ats), auto_submit=auto, before_step=lambda e, s: hook(page, job, e, s))
+            result.external_url = result.external_url or page.url
+        if result.status in ("manual_review_needed", "error"):
+            from src.services.appliers.linkedin import save_debug
+            save_debug(page, job, f"{ats}: {result.error or ''}")
         return result
 
     def _has_form(self, snap: Snapshot) -> bool:
