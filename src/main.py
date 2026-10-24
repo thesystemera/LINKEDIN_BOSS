@@ -360,6 +360,9 @@ def doctor():
                 console.print(f"  {role:7} -> {'[green]' + pick + '[/green]' if pick else '[red]none of ' + str(chain) + '[/red]'}")
         except Exception as e:
             console.print(f"[red]Model listing failed: {e}[/red]")
+    claude_key = settings.env("CLAUDE_API_KEY") or settings.env("ANTHROPIC_API_KEY")
+    console.print(f"Claude key: {'[green]found[/green]' if claude_key else '[yellow]missing[/yellow]'} | provider {settings.AI_PROVIDER} | "
+                  f"{', '.join(f'{r}={m}' for r, m in settings.CLAUDE_MODELS.items())}")
     cs = Database(settings.DB_PATH).ai_cache_stats()
     console.print(f"AI answer cache: {cs['entries']} saved answers, reused {cs['hits']} times "
                   f"(saved {cs['input_tokens_saved']:,} input + {cs['output_tokens_saved']:,} output tokens) | "

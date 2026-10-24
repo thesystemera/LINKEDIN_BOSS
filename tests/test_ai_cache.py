@@ -69,4 +69,44 @@ h = humanize("It’s a complex pipeline—about 190,000 lines—that fuses depth
 check("humanize: no dashes, curly quotes or ellipsis characters", not any(c in h for c in "—–’“”…"), h)
 check("humanize: dashes become plain commas", "pipeline, about 190,000 lines, that fuses" in h, h)
 check("'Why <company>?' is a long-form question (pro model)", bool(LONGFORM_RE.search("Why Anthropic?")) and bool(LONGFORM_RE.search("Prompt: Why are you applying to Palantir and why now?")))
+
+# Gemini out of credit: that call and every later one go to Claude (mocked client)
+import os
+from google.genai import errors as genai_errors
+os.environ.setdefault("CLAUDE_API_KEY", "test")
+settings.AI_PROVIDER = "auto"
+class FakeUsage:
+    input_tokens, cache_read_input_tokens, cache_creation_input_tokens, output_tokens = 100, 6000, 0, 20
+class FakeBlock:
+    type = "text"
+    def __init__(self, text): self.text = text
+class FakeMsg:
+    stop_reason, usage = "end_turn", FakeUsage()
+    def __init__(self, text): self.content = [FakeBlock(text)]
+class FakeMessages:
+    def __init__(self): self.kw = []
+    async def create(self, **kw):
+        self.kw.append(kw)
+        return FakeMsg(json.dumps({"reply": "from claude"}))
+class FakeClaude:
+    def __init__(self): self.messages = FakeMessages()
+async def out_of_credit(self, role, contents, base, system=None):
+    calls.append("gemini")
+    raise genai_errors.ClientError(402, {"error": {"code": 402, "message": "Your prepayment credits are depleted.", "status": "FAILED_PRECONDITION"}})
+AIService._generate = out_of_credit
+ai.claude = FakeClaude()
+n = len(calls)
+async def switch():
+    return await ai.structured("job 9", Ping, role="eval", system="CV"), await ai.structured("job 10", Ping, role="forms", system="CV")
+r1, r2 = asyncio.run(switch())
+kw = ai.claude.messages.kw
+check("Gemini out of credit: the call is answered by Claude", r1 == {"reply": "from claude"}, str(r1))
+check("later calls go straight to Claude", calls[n:] == ["gemini"] and r2 == {"reply": "from claude"}, str(calls[n:]))
+check("Claude: role models, no temperature", [k["model"] for k in kw] == [settings.CLAUDE_MODELS["eval"], settings.CLAUDE_MODELS["forms"]]
+      and all("temperature" not in k for k in kw), str([k["model"] for k in kw]))
+check("Claude: cached system prompt, closed schema", kw[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
+      and kw[0]["output_config"]["format"]["schema"]["additionalProperties"] is False)
+check("Claude: thinking off (Haiku 'disabled', Sonnet 'between_tools')", all(
+      k["thinking"]["type"] == ("disabled" if "haiku" in k["model"] else "between_tools") for k in kw))
+check("usage line reports Claude calls and cost", "Claude: 2 calls" in ai.usage_line() and "$" in ai.usage_line(), ai.usage_line())
 print("\nALL PASS" if not FAIL else f"\n{len(FAIL)} FAILED: {FAIL}")

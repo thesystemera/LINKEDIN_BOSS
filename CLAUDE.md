@@ -58,8 +58,10 @@ python src/main.py answers | external | capture | stats | retry | search | revie
 - **Schema changes** go in `migrate_db.py` (`apply_v2` is idempotent and runs at startup). Query helpers live in `database.py`.
 - **Models** are role chains in `settings.MODELS` (`eval`, `forms`, `pro`, `lite`, `vision`); `AIService` falls back down the chain on
   404/deprecation and retries 429/5xx. Use `AIService().structured(prompt, PydanticModel, role=..., system=...)`.
+  Claude is the second provider (`AI_PROVIDER`, `CLAUDE_MODELS`, key `CLAUDE_API_KEY`): in `auto` a Gemini credit failure (402)
+  moves the rest of the run to Claude. Never send `temperature` to Claude 5.5 models (400); JSON goes through `output_config.format`.
 - **Cost**: put stable text (instructions, CV/candidate data) in `system=` and only the per-job part in `prompt`. The system
-  prompt goes into a Gemini context cache (`AI_EXPLICIT_CACHE`), identical requests are answered from the `ai_cache` table
+  prompt goes into a Gemini context cache (`AI_EXPLICIT_CACHE`) or carries Claude's `cache_control` breakpoint, identical requests are answered from the `ai_cache` table
   (`AI_RESULT_CACHE`, bump `AI_CACHE_EPOCH` to invalidate), and `THINKING_LEVEL` keeps thinking tokens low (same approach as deepPBR).
 - Keep delays random (`random.uniform`); keep `HEADLESS = False`.
 - When LinkedIn markup changes: run `python src/main.py capture`, inspect `data/fixtures/<timestamp>/`, adjust the JS in
@@ -73,7 +75,7 @@ python tests/test_engine_linkedin.py data/debug_html/*.html
 python tests/test_linkedin_flow.py     # multi-step Easy Apply inside an iframe, mocked Gemini
 python tests/test_external_flow.py     # external form twice: second run must reuse saved answers
 python tests/test_regressions.py       # safety regressions: button classes, declarations, file hints, dry run, cards, login
-python tests/test_ai_cache.py          # AI answer cache and thinking settings, mocked Gemini
+python tests/test_ai_cache.py          # AI answer cache, thinking settings, Gemini -> Claude switch (mocked)
 ```
 
 ## Interview assistant

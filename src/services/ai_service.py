@@ -1,7 +1,9 @@
+import copy
 import json
 import re
 import time
 import atexit
+import base64
 import asyncio
 import hashlib
 from dataclasses import dataclass
@@ -12,6 +14,11 @@ from pydantic import BaseModel
 from google import genai
 from google.genai import types
 from google.genai import errors as genai_errors
+
+try:
+    import anthropic
+except ImportError:  # Claude stays unavailable until `pip install anthropic`
+    anthropic = None
 
 from src.services.base_service import SingletonService
 from src.services.database import Database
@@ -61,6 +68,25 @@ def _strip_fences(text: str) -> str:
     return t.strip()
 
 
+def _strict_schema(schema: Dict) -> Dict:
+    """Claude's structured outputs want closed objects and no defaults; a schema it still rejects falls back to plain JSON."""
+    s = copy.deepcopy(schema)
+
+    def walk(node):
+        if isinstance(node, dict):
+            node.pop("default", None)
+            if "properties" in node and "additionalProperties" not in node:
+                node["additionalProperties"] = False
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(s)
+    return s
+
+
 def _parse_json(text: str) -> Any:
     t = _strip_fences(text)
     try:
@@ -74,7 +100,8 @@ def _parse_json(text: str) -> Any:
 
 class AIService(SingletonService):
     """Gemini calls with three cost layers: exact answers from the database, a Gemini context cache for each
-    stable system prompt (instructions + CV, put first so the prefix repeats), and a low thinking level."""
+    stable system prompt (instructions + CV, put first so the prefix repeats), and a low thinking level.
+    Claude (settings.CLAUDE_MODELS) answers instead when Gemini is out of credit, with the same layers."""
 
     def __init__(self):
         if self._initialized:
@@ -86,6 +113,9 @@ class AIService(SingletonService):
         self.resolved = {}
         self.prompt_caches: Dict[str, _PromptCache] = {}
         self.usage = {"calls": 0, "cache_hits": 0, "prompt": 0, "cached": 0, "thinking": 0, "output": 0}
+        self.claude = None
+        self.on_claude = False
+        self.claude_usage = {"calls": 0, "prompt": 0, "cached": 0, "cache_write": 0, "output": 0, "usd": 0.0}
         self._db = None
         self._initialized = True
 
@@ -94,7 +124,8 @@ class AIService(SingletonService):
             return
         key = settings.load_api_key_from_file("gemini_key")
         if not key:
-            custom_print("ERROR", "Gemini API key not found (.env GEMINI_API_KEY or src/keys/gemini_key.txt)")
+            if not self._switch_to_claude("No Gemini API key"):
+                custom_print("ERROR", "Gemini API key not found (.env GEMINI_API_KEY or src/keys/gemini_key.txt)")
             return
         self.client = genai.Client(api_key=key)
         self.gemini_configured = True
@@ -221,12 +252,17 @@ class AIService(SingletonService):
         return u
 
     def usage_line(self) -> str:
-        u = self.usage
-        if not u["calls"] and not u["cache_hits"]:
-            return ""
-        share = u["cached"] / u["prompt"] * 100 if u["prompt"] else 0
-        return (f"Gemini: {u['calls']} calls, {u['cache_hits']} answered from cache | input {u['prompt']:,} tokens "
-                f"({share:.0f}% at cached rate) | thinking {u['thinking']:,} | output {u['output']:,}")
+        u, c = self.usage, self.claude_usage
+        lines = []
+        if u["calls"] or u["cache_hits"]:
+            share = u["cached"] / u["prompt"] * 100 if u["prompt"] else 0
+            lines.append(f"Gemini: {u['calls']} calls, {u['cache_hits']} answered from cache | input {u['prompt']:,} tokens "
+                         f"({share:.0f}% at cached rate) | thinking {u['thinking']:,} | output {u['output']:,}")
+        if c["calls"]:
+            share = c["cached"] / c["prompt"] * 100 if c["prompt"] else 0
+            lines.append(f"Claude: {c['calls']} calls | input {c['prompt']:,} tokens ({share:.0f}% at cached rate) | "
+                         f"output {c['output']:,} | about ${c['usd']:.2f}")
+        return "\n".join(lines)
 
     async def _generate(self, model_or_role: str, contents: Any, base: Dict, system: Optional[str] = None):
         """Returns (response, model used, token usage)."""
@@ -283,21 +319,100 @@ class AIService(SingletonService):
             raise last_err
         raise RuntimeError(f"No available model for '{model_or_role}' (tried {self._chain(model_or_role)}): {last_err}")
 
-    async def structured(self, prompt: str, schema: Type[BaseModel], role: str = "forms", temperature: float = None,
-                         system: str = None, images: List[bytes] = None) -> Optional[Dict[str, Any]]:
-        """Put stable text (instructions, candidate data) in `system` and the per-job part in `prompt`:
-        the system prompt is what Gemini caches."""
-        temperature = settings.GEMINI_TEMPERATURE if temperature is None else temperature
-        sys_text = ((system or "") + "\n\nOutput strictly valid JSON matching the schema.").strip()
-        json_schema = schema.model_json_schema()
-        key = self._result_key("structured", role, sys_text, prompt, json_schema, temperature, images)
-        hit = self._cache_get(key, f"{role}/{schema.__name__}")
-        if hit is not None:
-            return hit
+    # ── Claude: takes over when Gemini is out of credit (AI_PROVIDER auto) or is chosen outright ──
+    @staticmethod
+    def _claude_key() -> Optional[str]:
+        return settings.env("CLAUDE_API_KEY") or settings.env("ANTHROPIC_API_KEY")
+
+    def _use_claude(self) -> bool:
+        return settings.AI_PROVIDER == "claude" or self.on_claude
+
+    def _switch_to_claude(self, why: str) -> bool:
+        if settings.AI_PROVIDER == "gemini" or anthropic is None or not self._claude_key():
+            return False
+        if not self.on_claude:
+            custom_print("WARNING", f"{why} - using Claude for the rest of this run")
+        self.on_claude = True
+        return True
+
+    @staticmethod
+    def _gemini_out_of_credit(e: Exception) -> bool:
+        return isinstance(e, genai_errors.APIError) and (getattr(e, "code", 0) == 402 or bool(re.search(
+            r"prepayment|credits? (are |is )?(depleted|exhausted)|billing (is )?(not enabled|disabled)", str(e), re.I)))
+
+    @staticmethod
+    def _claude_model(role: str) -> str:
+        if role in settings.CLAUDE_MODELS:
+            return settings.CLAUDE_MODELS[role]
+        if str(role).startswith("claude-"):
+            return role
+        return settings.CLAUDE_MODELS["pro" if "pro" in str(role) else "forms"]  # a Gemini model name was passed
+
+    def _record_claude_usage(self, model: str, usage) -> Dict[str, int]:
+        fresh, read = int(usage.input_tokens or 0), int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        write = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        u = {"prompt": fresh + read + write, "cached": read, "cache_write": write, "output": int(usage.output_tokens or 0)}
+        p_in, p_out = settings.CLAUDE_PRICES.get(model, (2.00, 10.00))
+        cu = self.claude_usage
+        cu["calls"] += 1
+        for k, v in u.items():
+            cu[k] += v
+        cu["usd"] += ((fresh + 0.1 * read + 1.25 * write) * p_in + u["output"] * p_out) / 1e6
+        return u
+
+    async def _claude(self, role: str, prompt: str, system: Optional[str], max_tokens: int,
+                      json_schema: Optional[Dict] = None, images: List[bytes] = None):
+        """Returns (text, model used, token usage). Thinking off and a low effort keep the cost down; the
+        system prompt (instructions + CV) carries the cache breakpoint so it is billed at the cached rate."""
+        if self.claude is None:
+            self.claude = anthropic.AsyncAnthropic(api_key=self._claude_key(), max_retries=4)
+        content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                "data": base64.standard_b64encode(img).decode("ascii")}} for img in images or []]
+        content.append({"type": "text", "text": prompt})
+        level = settings.THINKING_LEVEL.get(role, "low")
+        out_cfg = {"effort": "low" if level == "minimal" else level}
+        if json_schema is not None:
+            out_cfg["format"] = {"type": "json_schema", "schema": json_schema}
+        kw = dict(max_tokens=max_tokens, output_config=out_cfg, messages=[{"role": "user", "content": content}])
+        if system:
+            kw["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        models = [self._claude_model(role), settings.CLAUDE_FALLBACK_MODEL]
+        last_err = None
+        for model in dict.fromkeys(m for m in models if m not in self.dead_models):
+            # Haiku accepts thinking "disabled"; Sonnet 5.5 rejects it and calls the off setting "between_tools"
+            thinking = {"type": "disabled"} if "haiku" in model else {"type": "between_tools"}
+            try:
+                t0 = time.time()
+                r = await self.claude.messages.create(model=model, thinking=thinking, **kw)
+            except anthropic.NotFoundError as e:
+                custom_print("WARNING", f"Model {model} unavailable (404) - trying next")
+                self.dead_models.add(model)
+                last_err = e
+                continue
+            u = self._record_claude_usage(model, r.usage)
+            custom_print("AI_TIMING", f"⏱ {model} {time.time() - t0:.1f}s | in {u['prompt']:,} (cached {u['cached']:,}, "
+                                      f"cache write {u['cache_write']:,}) | out {u['output']:,}")
+            if r.stop_reason == "refusal":
+                custom_print("WARNING", f"{model} declined to answer ({role})")
+                return "", model, u
+            return "".join(b.text for b in r.content if b.type == "text"), model, u
+        raise RuntimeError(f"No available Claude model for '{role}': {last_err}")
+
+    async def _claude_structured(self, role: str, prompt: str, json_schema: Dict, sys_text: str, images: List[bytes] = None):
+        try:
+            return await self._claude(role, prompt, sys_text, 8192, _strict_schema(json_schema), images)
+        except anthropic.BadRequestError as e:
+            if not re.search(r"schema|format|grammar|output_config", str(e), re.I):
+                raise
+            custom_print("WARNING", f"Claude rejected the schema ({str(e)[:160]}), retrying in plain JSON mode")
+            hint = (sys_text + "\nJSON schema:\n" + json.dumps(json_schema)[:6000]).strip()
+            return await self._claude(role, prompt, hint, 8192, None, images)
+
+    async def _gemini_structured(self, role: str, prompt: str, json_schema: Dict, sys_text: str, temperature: float,
+                                 images: List[bytes] = None):
         contents: Any = prompt
         if images:
             contents = [types.Part.from_bytes(data=img, mime_type="image/png") for img in images] + [prompt]
-        custom_print("AI_INPUT", f"--- PROMPT ({role}) ---\n{prompt}\n----------------")
         try:
             base = dict(temperature=temperature, response_mime_type="application/json", response_json_schema=json_schema)
             resp, model, usage = await self._generate(role, contents, base, sys_text)
@@ -308,7 +423,36 @@ class AIService(SingletonService):
             schema_hint = json.dumps(json_schema)[:6000]
             base = dict(temperature=temperature, response_mime_type="application/json")
             resp, model, usage = await self._generate(role, contents, base, (sys_text + "\nJSON schema:\n" + schema_hint).strip())
-        text = resp.text or ""
+        return resp.text or "", model, usage
+
+    async def _route(self, gemini_call, claude_call):
+        """Gemini unless Claude is in use; a Gemini credit failure moves this and every later call to Claude."""
+        if not self._use_claude():
+            if not self.client:
+                await self.initialize()
+            if not self._use_claude():
+                try:
+                    return await gemini_call()
+                except Exception as e:
+                    if not (self._gemini_out_of_credit(e) and self._switch_to_claude(f"Gemini is out of credit ({getattr(e, 'code', '')})")):
+                        raise
+        return await claude_call()
+
+    async def structured(self, prompt: str, schema: Type[BaseModel], role: str = "forms", temperature: float = None,
+                         system: str = None, images: List[bytes] = None) -> Optional[Dict[str, Any]]:
+        """Put stable text (instructions, candidate data) in `system` and the per-job part in `prompt`:
+        the system prompt is what Gemini and Claude cache."""
+        temperature = settings.GEMINI_TEMPERATURE if temperature is None else temperature
+        sys_text = ((system or "") + "\n\nOutput strictly valid JSON matching the schema.").strip()
+        json_schema = schema.model_json_schema()
+        key = self._result_key("structured", role, sys_text, prompt, json_schema, temperature, images)
+        hit = self._cache_get(key, f"{role}/{schema.__name__}")
+        if hit is not None:
+            return hit
+        custom_print("AI_INPUT", f"--- PROMPT ({role}) ---\n{prompt}\n----------------")
+        text, model, usage = await self._route(
+            lambda: self._gemini_structured(role, prompt, json_schema, sys_text, temperature, images),
+            lambda: self._claude_structured(role, prompt, json_schema, sys_text, images))
         custom_print("AI_OUTPUT", f"--- RESPONSE ---\n{text[:3000]}\n----------------")
         try:
             data = _parse_json(text)
@@ -329,8 +473,12 @@ class AIService(SingletonService):
         hit = self._cache_get(key, f"{role}/text")
         if hit is not None:
             return hit
-        resp, model, usage = await self._generate(role, prompt, dict(temperature=temperature, max_output_tokens=max_tokens), system)
-        out = (resp.text or "").strip()
+        async def gemini():
+            resp, model, usage = await self._generate(role, prompt, dict(temperature=temperature, max_output_tokens=max_tokens), system)
+            return resp.text or "", model, usage
+
+        out, model, usage = await self._route(gemini, lambda: self._claude(role, prompt, system, max_tokens))
+        out = out.strip()
         if out:
             self._cache_put(key, role, model, out, usage)
         return out

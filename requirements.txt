@@ -1,6 +1,7 @@
 # LinkedIn Boss v2 - core dependencies
 playwright>=1.48
 google-genai>=2.0
+anthropic>=2.0
 pydantic>=2.7
 python-dotenv>=1.0
 rich>=13.7

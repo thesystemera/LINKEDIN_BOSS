@@ -257,6 +257,27 @@ with sync_playwright() as p:
     check("interview AI-notetaker consent still answered normally", any("notetakers" in p for p in asked))
     check("name pronunciation never invented", by_q["Name Pronunciation |"] is not None and by_q["Name Pronunciation |"].value == "", str(by_q["Name Pronunciation |"]))
 
+    # JobAdder phone box with a select2 flag picker; dropdowns that don't list the candidate's location (Dropbox, Peoplebank)
+    from src.services.form_engine.matching import match_option
+    check("fuzzy match never turns New Zealand into Netherlands", match_option("New Zealand", ["Australia", "Netherlands", "Other Location"]) is None
+          and match_option("Bachelors degree", ["High school", "Bachelor's Degree", "Master's Degree"]) == 1)
+    pg.set_content("""<form><label for="CandidateMobile">Mobile</label><div class="phone-number"><div class="flex-row">
+      <div class="select2-container country-list"><a class="select2-choice" href="#"><span class="select2-chosen"><span class="flag flag-nz"></span></span></a>
+      <label for="s2id_autogen4" class="select2-offscreen"></label><input class="select2-focusser select2-offscreen" type="text" aria-haspopup="true" role="button" id="s2id_autogen4"></div>
+      <input class="country-list" style="display: none;"><input class="formatted-number form-control" id="CandidateMobile_FormattedNumber" name="CandidateMobile.FormattedNumber" type="text" required></div></div>
+      <label for="loc">Current Location *</label><select id="loc" required><option>Please Select</option><option>Australia</option><option>Netherlands</option><option>US - New Jersey</option><option>Other Location</option></select>
+      <label for="st">State/Region *</label><select id="st" required><option>Please Select...</option><option>New South Wales</option><option>Queensland</option><option>Victoria</option></select>
+      <label for="ct">Country *</label><select id="ct" required><option>Please Select</option><option>Australia</option><option>New Zealand</option></select></form>""")
+    ja_fields = FormEngine(pg).scan().fields
+    mob = [f for f in ja_fields if re.search(r"mobile", f.text, re.I)]
+    check("JobAdder: select2 helper input is not a field, the phone box is", len(mob) == 1 and mob[0].raw.get("name") == "CandidateMobile.FormattedNumber",
+          str([(f.text, f.raw.get("name")) for f in mob]))
+    ja = run_async(Answerer(settings.DB_PATH).answer_fields(ja_fields, job, {}))
+    by_q = {f.text[:12]: ja.get(f.fid) for f in ja_fields}
+    check("location missing from the options -> 'Other Location'", by_q["Current Loca"] is not None and by_q["Current Loca"].value == "Other Location", str(by_q["Current Loca"]))
+    check("country dropdown -> New Zealand", by_q["Country *"] is not None and by_q["Country *"].value == "New Zealand", str(by_q["Country *"]))
+    check("state list without NZ is left to the bank / AI, not forced", by_q["State/Region"] is None or by_q["State/Region"].source != "profile", str(by_q["State/Region"]))
+
     # login detection, markup trimmed from live captures (Oct 2026)
     from src.services.browser import linkedin_logged_in
     lg = b.new_context().new_page()

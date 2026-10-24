@@ -187,7 +187,7 @@ Description:
             res["pay_basis"] = "estimated" if res.get("pay_estimated") else ("stated" if res.get("pay_nzd") else "")
             return res
         except Exception as e:
-            custom_print("ERROR", f"Gemini evaluation error: {e}")
+            custom_print("ERROR", f"AI evaluation error: {e}")
             return {"apply": False, "confidence": 0, "reason": f"API error: {str(e)[:200]}", "error": True}
 
     last_errors = 0

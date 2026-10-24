@@ -1,9 +1,48 @@
-# LinkedIn Boss v2: handover (session of 22–23 Oct 2026)
+# LinkedIn Boss v2: handover (updated 24 Oct 2026)
 
 ## Where things stand
 
-- **v2 is the current system, committed locally on `master`** (not pushed). v1 lives on only in git history (commit `f64fdf4`).
-- **Nothing has run live yet.** The build machine had no network access to LinkedIn, the application systems or Gemini. Everything passed offline tests (below). The first real run must be a dry run.
+- **v2 runs live and fully automatic** (`python src/main.py run --no-approval`): Easy Apply plus external systems, auto-submit on, 40 applications a day (`MAX_APPLICATIONS_PER_DAY`).
+- **Results since 23 Oct:** 46 confirmed submissions (36 Easy Apply, 7 Greenhouse, 2 generic, 1 Workable), 11 submitted but unconfirmed, 96 stopped for a human, 5 errors. v1 plus v2 all-time: 1,510 confirmed.
+- **AI provider:** Gemini's prepaid credit ran out on 24 Oct. With `AI_PROVIDER = "auto"` the bot switches to Claude on the first 402 for the rest of the run (key `CLAUDE_API_KEY` in `.env`, about $200 of Console credit). The run of 24 Oct afternoon is on Claude.
+- **Code:** `master` on `github.com/thesystemera/LINKEDIN_BOSS` (**public**). Secrets and personal files stay out of git: `.env`, `data/` (database, browser profile, `private_profile.json` with the street address, `cv_variants/`, debug snapshots, logs).
+
+## AI and cost
+
+- **Roles** (`settings.MODELS` for Gemini, `settings.CLAUDE_MODELS` for Claude):
+  - `eval`: Gemini Flash / Claude Sonnet 5.5. A side-by-side check on 7 real jobs found Haiku rejected good remote fits; Sonnet is about 1 cent per job.
+  - `forms`, `lite`, `vision`: Gemini Flash(-Lite) / Claude Haiku 5.5.
+  - `pro` (cover letters, long answers, CV variants): Gemini Pro / Claude Sonnet 5.5.
+- **Cost layers, both providers:**
+  - identical requests come from the `ai_cache` table;
+  - the stable system prompt (instructions + CV) is cached: a Gemini context cache, or a Claude `cache_control` breakpoint (74% of input at the cached rate in testing);
+  - thinking is low or off.
+  - The run prints a usage line at the end, with a dollar estimate for Claude.
+- **Claude rules:** the 5.5 models reject `temperature` (it is never sent). JSON output goes through `output_config.format`; a schema Claude rejects falls back to plain JSON mode. Thinking is off: `disabled` on Haiku, `between_tools` on Sonnet.
+- `CONFIDENCE_THRESHOLD = 40`, the evaluation prompt's own apply rule. Claude scores lower and more realistically than Gemini did, so 50 would have cut volume.
+
+## Biggest gaps (next work, ranked by lost applications since 23 Oct)
+
+1. **Generic sites, "complex form - couldn't progress" (39).** Mostly gig/aggregator sites and unknown applicant systems. Look at `data/debug_html/<time>_<company>_<job>.html|png` for each. The `FormRunner` loop gives up when no next/submit button is recognised and vision assist finds nothing safe to click.
+2. **Account walls (Workday 12, iCIMS 5, SmartRecruiters 2, SuccessFactors 1).** Workday sign-in/account creation exists (`_prep_workday`, `ATS_ACCOUNT_EMAIL/PASSWORD`) but stalls; iCIMS and SuccessFactors have no account flow.
+3. **External page did not open (7):** the Apply click opened nothing the bot caught (popup blocked, same-tab navigation, or a LinkedIn interstitial).
+4. **Questions the profile can't answer:** notice period, "current or former employee of …", employment agreements, "Which ones?". They sit in the answer bank as `unanswered`; `python src/main.py answers` asks them first, and the answers then apply to every later form.
+5. **Easy Apply work-history dates (6):** fixed on 24 Oct (`fill_known_work_dates`, Media Sculpt dates from `APPLICATION_PROFILE["work_history_dates"]`). Confirm in the next run.
+
+Fixed on 24 Oct with fixture tests (`tests/test_regressions.py`):
+
+- JobAdder phone boxes: the scanner took select2's hidden flag-picker inputs for the phone field.
+- Location dropdowns without New Zealand: the bot now picks "Other …"; a state list without NZ goes to the bank / AI.
+- Fuzzy option matching turned "New Zealand" into "Netherlands".
+
+## Continuing in another session
+
+- **Local session (this PC):** has everything: browser profile with the LinkedIn login, `.env` keys, database, snapshots. Start with `python src/main.py doctor`, then the newest `data/logs/YYYY-MM-DD.log`.
+- **Cloud session (GitHub repo only):** no LinkedIn login, no keys, no database, no snapshots (all git-ignored, partly personal). Good for code work with the offline tests (all mocked). Not good for anything live or for the snapshot-driven fixes above unless a trimmed, de-personalised fixture is committed first.
+- **Pending decisions for Simon:**
+  - switch on the tailored CVs (`USE_TAILORED_CVS = True`, six variants in `data/cv_variants/`, review copies sent 24 Oct);
+  - realityvirtual title, currently "Founder & CTO";
+  - whether to skip gig/aggregator sites outright.
 
 ## What the v1 data showed (applications.db, Jan–Apr 2026)
 
@@ -84,7 +123,7 @@ Since January 2026, LinkedIn's job page renders Easy Apply inside a hidden full-
   - `--easy-only` was ignored
   - the frame filter was too broad
 
-## Tests (offline, mocked Gemini; all pass)
+## Tests (offline, mocked AI; all pass on 24 Oct)
 
 ```
 python tests/test_engine.py
@@ -92,6 +131,7 @@ python tests/test_engine_linkedin.py data/debug_html/*.html
 python tests/test_linkedin_flow.py
 python tests/test_external_flow.py
 python tests/test_regressions.py
+python tests/test_ai_cache.py         # answer cache, thinking settings, Gemini -> Claude switch
 ```
 
 ## Verified live (23 Oct 2026)
@@ -103,14 +143,16 @@ python tests/test_regressions.py
 5. **Easy Apply:** the form is a native `<dialog open data-testid="dialog">` in the main frame (no iframe, no `role="dialog"`). Fixed and verified end to end in dry run: steps advance, existing LinkedIn resume kept, follow box unticked. Also fixed: labels from group context (no "This field is required" labels), work-history/education editors never AI-filled (needs human), Yes/No radios whose question is a shared `aria-label`, React re-renders dropping `data-lb-*` tags, dry runs no longer write results.
 6. **Cost:** answer cache (`ai_cache` table), Gemini context cache for stable system prompts, low thinking level.
 
-## Not verified yet
+7. **External systems (24 Oct):** Greenhouse, Workable and generic forms submit end to end; LinkedIn's "Share your profile?" link, the Easy Apply daily limit (Easy Apply deferred to tomorrow, external continues), guest/social sign-in buttons (never clicked) and the Lever location autocomplete are handled.
+8. **Claude provider (24 Oct):** the automatic switch on Gemini's 402, every response schema the bot uses, prompt caching and evaluation quality were checked against the live API.
 
-1. **External systems live** (`apply <url>` with a Greenhouse, Lever and Ashby posting): confirm React-select comboboxes, the location autocomplete, Ashby yes/no toggles, and the email-verification-code gate. Workday and SEEK are the least tested. Until then run with `--easy-only`.
-2. **When something breaks:** `python src/main.py capture`, then inspect `data/fixtures/<timestamp>/`, fix the JS, and add a fixture test.
+## When something breaks
 
-## Open items and decisions for Simon
+`python src/main.py capture`, then inspect `data/fixtures/<timestamp>/`, fix the JS, and add a fixture test. Failed external applications also save `data/debug_html/*.html|png`.
 
-- **Public repo.** `src/services/cv_data.py` (phone, accessibility details) is committed to `github.com/thesystemera/LINKEDIN_BOSS`. If that repo is public, consider making it private or untracking `cv_data.py` before pushing v2.
+## Other notes for Simon
+
+- **Public repo.** `src/services/cv_data.py` (phone, work history) is public on GitHub. The street address lives only in the git-ignored `data/private_profile.json`.
 - **Outdated CV text.** `CV_FULL_TEXT` in `cv_data.py` is the older "Creative Technologist" CV. The bot now passes the *uploaded* CV's text (`CV_FILES`) to the AI, so answers match what employers see. It's worth making `CV_FULL_TEXT` match too.
 - **Bot mentions.** `MENTION_APPLICATION_BOT=False` stops cover letters from saying the application was AI-optimised (v1 allowed it).
 - **Rough numbers in config.** FX rates and work-days-per-year in config are approximations, used only for pay ranking.

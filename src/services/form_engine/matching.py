@@ -63,6 +63,12 @@ def option_range(opt: str) -> Optional[Tuple[float, float]]:
     return (n, n)
 
 
+def _share_word(a: str, o: str) -> bool:
+    ow = [w for w in o.split() if len(w) >= 3]
+    return any(w == x or (min(len(w), len(x)) >= 4 and (w.startswith(x) or x.startswith(w)))
+               for w in a.split() if len(w) >= 3 for x in ow)
+
+
 def match_option(answer, options: List[str], fuzzy_cutoff: float = 0.6) -> Optional[int]:
     if answer is None or not options:
         return None
@@ -99,7 +105,8 @@ def match_option(answer, options: List[str], fuzzy_cutoff: float = 0.6) -> Optio
             return best
     scores = [difflib.SequenceMatcher(None, a, o).ratio() for o in normed]
     i = max(range(len(scores)), key=lambda k: scores[k])
-    if scores[i] >= fuzzy_cutoff:
+    # a loose match also needs a word in common: "new zealand" and "netherlands" score 0.64 on letters alone
+    if scores[i] >= 0.85 or (scores[i] >= fuzzy_cutoff and _share_word(a, normed[i])):
         return i
     at = set(a.split())
     best_j, best_s = None, 0.0

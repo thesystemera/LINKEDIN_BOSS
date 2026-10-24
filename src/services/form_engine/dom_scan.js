@@ -340,6 +340,10 @@
     if (/recaptcha|hcaptcha|g-recaptcha|cf-turnstile/i.test((el.name || '') + ' ' + (el.id || '') + ' ' + (el.className || ''))) continue;
     if (/requiredInput/i.test(el.className || '') && !directLabel(el)) continue;
     if (el.closest('.iti__dropdown-content, .iti__country-container, [class*="iti__search"]')) continue;
+    // select2's keyboard-focus and search helpers (e.g. the flag picker beside a JobAdder phone box), not the real control
+    if (el.tagName === 'INPUT' && /\bselect2-(focusser|input)\b/.test(el.className || '')) continue;
+    // inside a phone widget only the visible number box counts (hidden inputs hold the flag picker's country code)
+    if (el.tagName === 'INPUT' && !isVisible(el) && el.closest('.phone-number, [class*="phone-input"], [class*="PhoneInput"]')) continue;
     if ((kind === 'checkbox' || kind === 'radio') && el.tagName === 'INPUT' && !isVisible(el) && el.parentElement && el.parentElement.querySelector('button[aria-pressed]')) continue;
 
     let members = [el];

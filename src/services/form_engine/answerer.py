@@ -204,6 +204,22 @@ class Answerer:
                 return Answer("", "profile", 0, needs_human=bool(f.required))
         return None
 
+    def _fit_choice(self, f: Field, a: Answer) -> Optional[Answer]:
+        """A profile fact for a dropdown must be one of its options: the fact itself, else the country
+        ("Auckland, New Zealand" -> "New Zealand"), else "Other ..." on a location question. None lets the bank / AI choose."""
+        opts = [o for o in f.options if o != f.raw.get("placeholderOption") and not re.match(r"^\s*(please )?(select|choose)\b|^\s*-+", o, re.I)]
+        if match_option(a.value, opts) is not None:
+            return a
+        country = self.p.get("country")
+        i = match_option(country, opts) if country and country != a.value else None
+        if i is not None:
+            return Answer(opts[i], a.source, a.confidence)
+        other = next((o for o in opts if re.match(r"^\s*other\b", o, re.I)), None)
+        if other and re.search(r"location|country|city|region|state|province|based|reside", f.text, re.I):
+            return Answer(other, a.source, 80)
+        custom_print("FORM", f"– '{f.text[:50]}': profile answer '{a.value}' is not one of the options, asking the bank / AI")
+        return None
+
     async def _file_answer(self, f: Field, job: Dict, ctx: Dict) -> Optional[Answer]:
         if re.search(r"autofill|auto-fill|parse|import from", f"{f.label} {f.question}", re.I) and not f.required:
             return Answer("", "file")
@@ -385,6 +401,8 @@ Follow the disclosure_strategy in the candidate data for accessibility topics.
                 out[f.fid] = Answer("", "human", 0, bool(f.required))
                 continue
             a = self._profile_answer(f, ctx)
+            if a and a.source == "profile" and a.value and f.kind in CHOICE_KINDS and f.options:
+                a = self._fit_choice(f, a)
             if a:
                 out[f.fid] = a
                 continue
