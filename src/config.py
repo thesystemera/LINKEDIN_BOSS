@@ -169,6 +169,17 @@ class Settings:
     ANSWER_BANK_REUSE_PENDING = True    # reuse AI answers you haven't reviewed yet (tagged 'saved-unreviewed' in summaries)
     MENTION_APPLICATION_BOT = False     # False = cover letters/answers never mention this bot (cv_data meta_automation is withheld)
 
+    # Tailored CV per job type (python src/main.py cvs): written once by the pro model from both CVs + cv_data,
+    # every number/company checked against the sources, cached in data/cv_variants/. Used only when switched on.
+    USE_TAILORED_CVS = False
+    CV_VARIANTS = {
+        "applied_ai": "Applied AI / LLM / ML engineer roles: production AI platforms, agents and LLM orchestration, his own trained models, inference cost, shipping AI to production",
+        "fde": "Forward-deployed / solutions / customer engineering: building and deploying AI systems end to end for real users, integration, working with stakeholders and partners, speaking",
+        "platform_arch": "Platform / solutions / technical architect and senior backend roles: distributed systems, microservices, cloud and GPU infrastructure, reliability, MLOps, cost",
+        "leadership": "Engineering leadership (Head of Engineering, CTO, engineering manager, tech lead): founding and running an 11-person studio, partnerships, delivery, technical strategy",
+        "graphics_3d_cv": "Graphics / 3D / computer vision / XR: deepPBR.io reconstruction and material pipeline, his own vision models, 10+ years of photogrammetry, real-time rendering, Unreal, GLSL",
+        "audio_media": "Audio / music / media technology: PLAiR adaptive radio (TTS, STT, source separation, music generation, audio engine), audio DSP, recording arts and radio background",
+    }
     CV_FILES = {
         "default": "Data/Simon_Che_de_Boer_CV_AIPlatform.docx",
         "applied_ai": "Data/Simon_Che_de_Boer_CV_AIPlatform.docx",
@@ -205,6 +216,7 @@ class Settings:
     DEBUG_DIR = DATA_DIR / "debug_html"
     FIXTURE_DIR = DATA_DIR / "fixtures"
     COVER_LETTER_DIR = DATA_DIR / "cover_letters"
+    CV_VARIANT_DIR = DATA_DIR / "cv_variants"
     KEYS_DIR = BASE_DIR / "src" / "keys"
 
     @staticmethod
@@ -251,6 +263,10 @@ class Settings:
 
     @staticmethod
     def cv_for_lane(lane: str | None) -> Path | None:
+        if settings.USE_TAILORED_CVS:
+            v = settings.CV_VARIANT_DIR / (lane if lane in settings.CV_VARIANTS else "applied_ai") / "Simon_Che_de_Boer_CV.docx"
+            if v.exists():
+                return v
         rel = settings.CV_FILES.get(lane or "default") or settings.CV_FILES.get("default")
         if not rel:
             return None

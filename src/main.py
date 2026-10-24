@@ -384,6 +384,15 @@ def doctor():
             ctx.close()
 
 
+def build_cvs():
+    print_header("Tailored CVs (one per job type)")
+    from src.services.documents import build_cv_variants
+    results = build_cv_variants(force="--force" in sys.argv)
+    for lane, r in results.items():
+        console.print(f"  {lane:15} {r.get('words', '?'):>4} words  {r.get('headline', '')[:70]}" + (f"  [yellow]check: {len(r['issues'])} unsupported[/yellow]" if r.get("issues") else ""))
+    console.print(f"\nFiles: {settings.CV_VARIANT_DIR}\nIn use: {'yes' if settings.USE_TAILORED_CVS else 'no - set USE_TAILORED_CVS = True in config.py once you have checked them'}")
+
+
 def capture():
     print_header("Capture page structure")
     from datetime import datetime
@@ -573,7 +582,7 @@ def main():
             settings.EASY_APPLY_ONLY = True
     commands = {
         "setup": setup, "run": run, "stats": stats, "review": review, "reset": reset_db, "retry": run_retry,
-        "search": search, "answers": answers_review, "external": external_queue, "doctor": doctor, "capture": capture,
+        "search": search, "answers": answers_review, "external": external_queue, "doctor": doctor, "capture": capture, "cvs": build_cvs,
     }
     if command == "apply":
         apply_single(arg or input("LinkedIn job URL/number or application URL: ").strip())
