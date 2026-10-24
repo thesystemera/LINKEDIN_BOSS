@@ -39,8 +39,11 @@ CARDS_JS = """
     if (!location || notLoc(location)) location = rest.find(l => /,|remote|hybrid|on-site|new zealand|australia/i.test(l) && l !== company && !notLoc(l)) || '';
     const text = lines.join(' | ');
     const salary = lines.find(l => /(\\$|NZ\\$|A\\$|US\\$|€|£)\\s?\\d|\\d\\s?(k|K)\\b.*\\/(yr|hr|day)|\\/(yr|hr|day)\\b|per (hour|annum|day)/.test(l) && /\\d/.test(l)) || '';
+    // "4 hours ago", "1 day ago", "Reposted 2 weeks ago" -> age in days (queue applies to the newest first)
+    const am = text.match(/\\b(\\d+)\\s+(minute|hour|day|week|month)s?\\s+ago\\b/i);
+    const age_days = am ? ({minute: 0, hour: 0, day: 1, week: 7, month: 30}[am[2].toLowerCase()] * +am[1]) : (/just now|today/i.test(text) ? 0 : null);
     out.push({
-      id, title, company, location, salary,
+      id, title, company, location, salary, age_days,
       easy: /easy apply/i.test(text),
       applied: rest.some(l => /^Applied$|^Applied \\d+ (second|minute|hour|day|week|month)s? ago$|^Application submitted$|^Applied on \\d/.test(l)),
       promoted: /promoted/i.test(text),
@@ -129,6 +132,7 @@ class JobScraper:
                             "company": j["company"],
                             "location": j["location"],
                             "salary_text": j["salary"],
+                            "posted_age_days": j.get("age_days"),
                             "workplace": j["workplace"],
                             "apply_type": "easy" if j["easy"] else "unknown",
                             "url": f"https://www.linkedin.com/jobs/view/{j['id']}/",

@@ -139,11 +139,12 @@ class Database:
         try:
             cursor.execute('''
                            INSERT INTO jobs (linkedin_job_id, title, company, url, description, location, workplace, salary_text,
-                                             apply_type, lane, search_keyword, search_location, norm_title)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                             apply_type, lane, search_keyword, search_location, norm_title, posted_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now', '-' || ? || ' days') END)
                            ''', (job.get('linkedin_job_id'), job['title'], job['company'], job['url'], job.get('description', 'No Description Available'),
                                  job.get('location'), job.get('workplace'), job.get('salary_text'), job.get('apply_type'), job.get('lane'),
-                                 job.get('search_keyword'), job.get('search_location'), norm_title(job['title'])))
+                                 job.get('search_keyword'), job.get('search_location'), norm_title(job['title']),
+                                 job.get('posted_age_days'), job.get('posted_age_days')))
             conn.commit()
             return cursor.lastrowid
         except sqlite3.IntegrityError:
@@ -405,7 +406,10 @@ class Database:
         try:
             ext = "" if include_external else "AND COALESCE(j.apply_type, 'easy') IN ('easy', 'unknown')"
             ext += f" AND j.scraped_at >= datetime('now', '-{int(max_age_days)} days')"
-            order = "COALESCE(e.pay_nzd, 0) DESC, e.confidence DESC" if sort_by_pay else "e.confidence DESC, COALESCE(e.pay_nzd, 0) DESC"
+            # newest listings first (age bands: 3 / 7 / 14 days / older), then pay or confidence within a band
+            age = "julianday('now') - julianday(COALESCE(j.posted_at, j.scraped_at))"
+            band = f"CASE WHEN j.posted_at IS NULL AND {age} <= 7 THEN 1 WHEN {age} <= 3 THEN 0 WHEN {age} <= 7 THEN 1 WHEN {age} <= 14 THEN 2 ELSE 3 END"
+            order = f"{band}, " + ("COALESCE(e.pay_nzd, 0) DESC, e.confidence DESC" if sort_by_pay else "e.confidence DESC, COALESCE(e.pay_nzd, 0) DESC")
             rows = conn.execute(f'''
                                 SELECT j.id, j.linkedin_job_id, j.title, j.company, j.url, j.description, j.location, j.workplace,
                                        j.employment_type, j.salary_text, j.apply_type, j.external_url, j.ats, j.lane,

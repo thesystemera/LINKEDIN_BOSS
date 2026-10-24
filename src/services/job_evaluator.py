@@ -152,7 +152,7 @@ Return JSON {"keep_indices": [...]} with the indices of the jobs to keep. When i
 CANDIDATE
 Based in Auckland, New Zealand. NZ citizen: full work rights in NZ and Australia (no sponsorship). Needs sponsorship anywhere else. Open to remote, NZ/AU relocation, contract or permanent.
 Professional years by technology: {CV_SUPPLEMENTARY.get('technology_experience_years', {})}
-Current work: {' '.join(str(CV_SUPPLEMENTARY.get('current_work', {}).get('deeppbr_io', {}).get(k, '')) for k in ('role', 'timeframe', 'what_it_is', 'scale'))}
+Current work: {' '.join(str(CV_SUPPLEMENTARY.get('current_work', {}).get('deeppbr_io', {}).get(k, '')) for k in ('role', 'timeframe', 'what_it_is', 'scale'))} Own trained production models: {'; '.join(CV_SUPPLEMENTARY.get('current_work', {}).get('deeppbr_io', {}).get('own_models', {}).get('models', []))}.
 How he works: {CV_SUPPLEMENTARY.get('working_style', {}).get('approach', '')}
 {CV_FULL_TEXT[:9000]}
 

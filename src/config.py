@@ -59,7 +59,7 @@ class Settings:
     SCROLL_PAUSE_TIME = 4
     MAX_PAGES_PER_SEARCH = 2
     MAX_SEARCHES_PER_RUN = 24
-    SEARCH_DATE_FILTER = "r604800"      # r86400 = 24h, r604800 = week, r2592000 = month
+    SEARCH_DATE_FILTER = "r2592000"     # r86400 = 24h, r604800 = week, r2592000 = month (backlog; newest are applied to first)
     EASY_APPLY_ONLY = False             # False = scrape everything; external applications go through the ATS appliers
     SEARCH_SORT = "DD"                  # DD = newest first, R = relevance
     JOB_TYPES = "F,C,T"                 # F full-time, C contract, T temporary, P part-time

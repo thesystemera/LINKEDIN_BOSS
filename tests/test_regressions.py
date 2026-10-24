@@ -111,6 +111,7 @@ with sync_playwright() as p:
     check("live card: title/company/location parsed", fs.get("title") == "Full Stack Developer C# Vue.js - FinTech" and fs.get("location", "").startswith("Christchurch"), str(fs))
     check("live card: Easy Apply in the card footer detected", fs.get("easy") is True and da.get("easy") is False, f"{fs.get('easy')} {da.get('easy')}")
     check("live card: salary parsed", "NZD/yr" in fs.get("salary", ""), str(fs.get("salary")))
+    check("live card: posting age read (1 day / 4 hours)", fs.get("age_days") == 1 and da.get("age_days") == 0, f"{fs.get('age_days')} {da.get('age_days')}")
     pg.evaluate("() => { const li = document.createElement('li'); li.className = 'job-card-container__footer-item'; li.textContent = 'Applied'; document.querySelectorAll('.job-card-container__footer-wrapper')[1].appendChild(li); }")
     da = {c["company"]: c for c in pg.evaluate(CARDS_JS)["jobs"]}["DataAnnotation"]
     check("live card: Applied badge in the card footer detected", da["applied"] is True)

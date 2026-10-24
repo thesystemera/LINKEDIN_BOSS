@@ -171,7 +171,7 @@ V2_COLUMNS = {
     "jobs": [
         ("location", "TEXT"), ("workplace", "TEXT"), ("employment_type", "TEXT"), ("salary_text", "TEXT"),
         ("apply_type", "TEXT"), ("external_url", "TEXT"), ("ats", "TEXT"), ("lane", "TEXT"),
-        ("search_keyword", "TEXT"), ("search_location", "TEXT"), ("norm_title", "TEXT"),
+        ("search_keyword", "TEXT"), ("search_location", "TEXT"), ("norm_title", "TEXT"), ("posted_at", "TIMESTAMP"),
     ],
     "evaluations": [
         ("lane", "TEXT"), ("eligible", "INTEGER"), ("blockers", "TEXT"), ("pay_nzd", "REAL"),

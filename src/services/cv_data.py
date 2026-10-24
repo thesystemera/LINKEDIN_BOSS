@@ -35,10 +35,21 @@ CV_SUPPLEMENTARY = {
             "timeframe": "June 2026 - present (launching soon at https://deeppbr.io)",
             "what_it_is": "An autonomous 3D asset factory: upload photos of a real object and get back a production-ready, PBR-textured 3D asset. Three modes (Reconstruction, Repair, Texture) on one shared pipeline. An open-component alternative to the RealityCapture-plus-manual-cleanup workflow.",
             "lineage": "Rebuilds deepPBR - the four-GAN PBR map generator he created at realityvirtual.co (State of Art Academy Venice 2018, 80.lv features) - as a full cloud product.",
+            "own_models": {
+                "instruction": "Lead with these: models he designed and trained himself, not off-the-shelf models he called.",
+                "models": [
+                    "Delight: natural photo -> delit albedo",
+                    "PBR Extract: albedo -> roughness, normal, AO, cavity and displacement maps",
+                    "Rendered Full-PBR (Natural-to-PBR): camera image -> albedo plus all PBR maps in one pass (the default material path)",
+                    "Perspective Correction: image -> 3D rotation plus pan/zoom"
+                ],
+                "architecture": "Image-to-image translators on a shared NAFNet-style U-Net trunk, conditioned on material text phrases (cross-attention at the bottleneck plus FiLM at four decoder scales, learned map-identity tags); one packed output head per model",
+                "training": "His own PyTorch training pipeline with dataset formation, augmentation, sweeps and a live training dashboard; all four checkpoints run in production on every GPU worker"
+            },
             "pipeline": [
                 "Photogrammetry lane: COLMAP alignment, OpenMVS dense reconstruction and meshing",
                 "Voxel lane: fuses calibrated silhouettes, monocular depth (Depth Anything) and the photogrammetry surface into one mesh",
-                "AI texture repair: plans virtual camera shots, synthesises missing surface with SDXL in view space and writes it back to the mesh; delighting toward true PBR albedo",
+                "AI texture repair: plans virtual camera shots, synthesises missing surface in view space (SDXL as a supporting component) and writes it back to the mesh; his own Delight / Full-PBR models produce true PBR albedo and maps",
                 "Automatic decimation, UV unwrap, UDIM atlases, surface-detail baking and part segmentation",
                 "Gemini vision-language model for asset classification, part labelling and AI quality grading, with result and context caching and daily spend limits"
             ],
@@ -110,7 +121,8 @@ CV_SUPPLEMENTARY = {
             "Unity": "4 years (realityvirtual.co 2014-2020, secondary platform alongside Unreal)",
             "OpenCV": "3 years (deepPBR/deepMirror computer vision pipelines, photogrammetry preprocessing)",
             "Docker": "3 years (containerization for PLAiR/MoneyPrinter deployments)",
-            "PyTorch/TensorFlow": "4 years (custom model training for deepPBR, audio enhancement; deepPBR.io 2026 GPU pipeline with PyTorch, nvdiffrast, diffusers)",
+            "PyTorch/TensorFlow": "4 years (custom model training for deepPBR, audio enhancement; deepPBR.io 2026: designed and trained four production image-to-image models in PyTorch, plus nvdiffrast / diffusers GPU pipeline)",
+            "Training own deep learning models": "4 years (deepPBR four-GAN PBR generator at realityvirtual.co from 2018; deepPBR.io 2026: Delight, PBR Extract, Full-PBR and Perspective Correction models)",
             "Maya": "5 years (3D asset pipelines, photogrammetry cleanup, VFX workflows)",
             "Houdini": "3 years (procedural workflows, VFX, point cloud processing)",
             "Substance Painter/Designer": "4 years (PBR texturing, directly informed deepPBR AI development)"
