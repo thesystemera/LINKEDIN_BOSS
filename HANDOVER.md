@@ -24,7 +24,9 @@
 ## Biggest gaps (next work, ranked by lost applications since 23 Oct)
 
 1. **Generic sites, "complex form - couldn't progress" (39).** Mostly gig/aggregator sites and unknown applicant systems. Look at `data/debug_html/<time>_<company>_<job>.html|png` for each. The `FormRunner` loop gives up when no next/submit button is recognised and vision assist finds nothing safe to click.
-2. **Account walls (Workday 12, iCIMS 5, SmartRecruiters 2, SuccessFactors 1).** Workday sign-in/account creation exists (`_prep_workday`, `ATS_ACCOUNT_EMAIL/PASSWORD`) but stalls; iCIMS and SuccessFactors have no account flow.
+2. **Account walls (Workday 12, iCIMS 5, SmartRecruiters 2, SuccessFactors 1).** Workday sign-in/account creation exists (`_prep_workday`, `ATS_ACCOUNT_EMAIL/PASSWORD`) but stalls; SuccessFactors has no account flow.
+   - **iCIMS (24 Oct):** `_prep_icims` / `_icims_signin` handle Jibe career sites (`jibeapply.com`, e.g. GitHub). The application lives in a slow cross-site iframe that the old scan missed, so it is opened as the page itself; then email + privacy consent, sign-in or new account, and the form runner. Fixture-tested end to end.
+   - **Live on GitHub:** an hCaptcha image challenge appears after the email step, and captchas are never solved by the bot. Such jobs end as manual review ("solve the captcha"). Run `python src/main.py retry` with approval on (not `--no-approval`) to do them by hand; the sign-in and account steps after the captcha are not yet verified live. Each company has its own iCIMS portal, so a login does not carry over.
 3. **External page did not open (7):** the Apply click opened nothing the bot caught (popup blocked, same-tab navigation, or a LinkedIn interstitial).
 4. **Questions the profile can't answer:** notice period, "current or former employee of …", employment agreements, "Which ones?". They sit in the answer bank as `unanswered`; `python src/main.py answers` asks them first, and the answers then apply to every later form.
 5. **Easy Apply work-history dates (6):** fixed on 24 Oct (`fill_known_work_dates`, Media Sculpt dates from `APPLICATION_PROFILE["work_history_dates"]`). Confirm in the next run.

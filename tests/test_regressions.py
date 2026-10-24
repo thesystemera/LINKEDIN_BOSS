@@ -278,6 +278,55 @@ with sync_playwright() as p:
     check("country dropdown -> New Zealand", by_q["Country *"] is not None and by_q["Country *"].value == "New Zealand", str(by_q["Country *"]))
     check("state list without NZ is left to the bank / AI, not forced", by_q["State/Region"] is None or by_q["State/Region"].source != "profile", str(by_q["State/Region"]))
 
+    # iCIMS behind a Jibe careers site (GitHub, Oct 2026): Apply -> iCIMS page with a slow iframe -> email + privacy
+    # -> new account -> application. Test credentials only; the fake hosts are served locally by page.route.
+    import os
+    from src.services.appliers.external import detect_ats
+    os.environ["ATS_ACCOUNT_EMAIL"], os.environ["ATS_ACCOUNT_PASSWORD"] = "bot@example.test", "test-pass-123"
+    ICIMS_IN = """<div id="app"></div><script>
+      const app = document.getElementById('app'), $ = id => document.getElementById(id);
+      function emailStep() {
+        app.innerHTML = `<h2>Enter Your Information</h2><label for="email">Email</label><input type="email" id="email" name="css_loginName">
+          <div><b>Consent</b> Please acknowledge that you've read the Candidate Privacy Policy.
+          <label for="accept_gdpr"><input type="checkbox" id="accept_gdpr" name="accept_gdpr" aria-required="true"> I accept</label></div>
+          <input id="enterEmailSubmitButton" type="submit" value="Next">`;
+        $('enterEmailSubmitButton').onclick = e => { e.preventDefault(); if ($('email').value && $('accept_gdpr').checked) { window.__email = $('email').value; CODE ? codeStep() : accountStep(); } };
+      }
+      function codeStep() { app.innerHTML = `<h2>Verify</h2><p>We've sent a verification code to your email.</p><label for="vc">Verification code</label><input id="vc"><button>Verify</button>`; }
+      function accountStep() {
+        app.innerHTML = `<h2>Create an Account</h2><label for="fn">First Name</label><input id="fn"><label for="ln">Last Name</label><input id="ln">
+          <label for="pw">Password</label><input type="password" id="pw"><label for="pw2">Re-enter Password</label><input type="password" id="pw2"><button id="ca">Create Account</button>`;
+        $('ca').onclick = () => { if ($('pw').value && $('pw').value === $('pw2').value && $('fn').value && $('ln').value) { window.__account = [$('fn').value, $('ln').value, $('pw').value]; appStep(); } };
+      }
+      function appStep() {
+        app.innerHTML = `<h2>Candidate Profile</h2><label for="ph">Phone</label><input id="ph" type="tel" required><label for="cv">Resume</label><input type="file" id="cv">
+          <input type="submit" id="sub" value="Submit Application">`;
+        $('sub').onclick = e => { e.preventDefault(); window.__submitted = 1; app.innerHTML = '<h2>Thank you for applying</h2>'; };
+      }
+      emailStep();</script>"""
+    def icims_route(route):
+        u = route.request.url
+        if "jibeapply.com" in u:
+            body = "<main><h1>Engineer</h1><p>About the role.</p><button onclick=\"location.href='https://careers-acme.icims.com/jobs/1/login'\">Apply</button></main>"
+        elif "in_iframe" in u:
+            body = ICIMS_IN.replace("CODE ?", ("true" if "/jobs/2/" in u else "false") + " ?")
+        else:
+            job_no = "2" if "/jobs/2/" in u else "1"
+            body = f"<header><a href='#'>Careers</a></header><iframe id='icims_content_iframe' src='https://careers-acme.icims.com/jobs/{job_no}/login?in_iframe=1' height='600'></iframe>"
+        route.fulfill(status=200, content_type="text/html", body=body)
+    pg.route(re.compile(r"https://(acme\.jibeapply\.com|careers-acme\.icims\.com)/.*"), icims_route)
+    check("Jibe career sites are iCIMS", detect_ats("https://githubinc.jibeapply.com/jobs/6297") == "icims")
+    settings.EXTERNAL_AUTO_SUBMIT["icims"] = True
+    res_ic = ExternalApplier(FormRunner()).apply(pg, job, url="https://acme.jibeapply.com/jobs/1")
+    acct, used_email = pg.evaluate("() => window.__account || null"), pg.evaluate("() => window.__email || null")
+    check("iCIMS: frame opened as the page, email step, new account, application submitted", res_ic.status == "success" and pg.evaluate("() => window.__submitted") == 1,
+          f"{res_ic.status} {res_ic.error} url={pg.url}")
+    check("iCIMS: account uses ATS_ACCOUNT_EMAIL/PASSWORD and the profile name",
+          used_email == "bot@example.test" and acct == [APPLICATION_PROFILE["first_name"], APPLICATION_PROFILE["last_name"], "test-pass-123"], f"{used_email} {acct}")
+    pg.goto("https://careers-acme.icims.com/jobs/2/login")
+    res_code = ExternalApplier(FormRunner()).apply(pg, job)
+    check("iCIMS: an emailed verification code stops for a human", res_code.status == "manual_review_needed" and "code" in (res_code.error or ""), f"{res_code.status} {res_code.error}")
+
     # login detection, markup trimmed from live captures (Oct 2026)
     from src.services.browser import linkedin_logged_in
     lg = b.new_context().new_page()

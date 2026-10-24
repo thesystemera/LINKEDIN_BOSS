@@ -21,7 +21,7 @@ ATS_URL = [
     ("pageup", r"pageuppeople\.com|pageup\.com"),
     ("bamboohr", r"bamboohr\.com"),
     ("seek", r"seek\.(co\.nz|com\.au)"),
-    ("icims", r"icims\.com"),
+    ("icims", r"icims\.com|jibeapply\.com"),  # Jibe career sites (e.g. GitHub) front iCIMS
     ("successfactors", r"successfactors|sapsf\.|jobs\.sap\.com"),
     ("taleo", r"taleo\.net"),
     ("jobvite", r"jobvite\.com"),
@@ -40,6 +40,12 @@ FINGERPRINT_JS = """
   return (srcs + ' ' + meta + ' ' + (document.querySelector('#grnhse_app, #grnhse_iframe') ? 'greenhouse.io' : '')).slice(0, 20000);
 }
 """
+
+ICIMS_FRAME_JS = """() => { const f = document.querySelector('iframe#icims_content_iframe, iframe[src*="icims.com"][src*="in_iframe"]');
+  return f ? f.src : ''; }"""
+ICIMS_CODE_RE = re.compile(r"verification code|one[- ]time (pass)?code|verify your e-?mail|check your (e-?mail|inbox)|we('ve| have) (just )?(sent|emailed)", re.I)
+ICIMS_BAD_LOGIN_RE = re.compile(r"(incorrect|invalid|wrong) (password|e-?mail|login|credentials)|password (is )?(incorrect|invalid)|account (is )?locked", re.I)
+AUTH_BUTTON_RE = re.compile(r"^(next|continue|log ?in|sign ?in|create (an |my )?account|register)\b", re.I)
 
 GUEST_RE = re.compile(r"(continue|apply|proceed) (as (a )?guest|without (an )?account|without (signing|logging) in)|^guest\b|skip (sign ?in|log ?in)", re.I)
 
@@ -257,6 +263,128 @@ class ExternalApplier:
             except Exception:
                 pass
         return None
+
+    def _prep_icims(self, page: Page, job: Dict) -> Optional[ApplyResult]:
+        """iCIMS, also behind Jibe career sites. The application sits in a slow cross-site iframe, so it is opened
+        as the page itself; then the email + privacy step, then sign-in or a new account (ATS_ACCOUNT_EMAIL/PASSWORD)."""
+        for _ in range(3):
+            if self._icims_unframe(page):
+                break
+            eng = FormEngine(page)
+            snap = eng.scan()
+            if self._has_form(snap) or self._icims_auth_page(page, snap):
+                break
+            nxt = self._click_apply(page, eng, snap)
+            if nxt is None:
+                break
+            if nxt is not page:
+                page.goto(nxt.url, wait_until="domcontentloaded")
+                nxt.close()
+            time.sleep(3)
+        return self._icims_signin(page)
+
+    def _icims_unframe(self, page: Page) -> bool:
+        src = ""
+        for _ in range(10):
+            try:
+                src = page.evaluate(ICIMS_FRAME_JS)
+            except Exception:
+                src = ""
+            if src or "icims.com" not in page.url:
+                break
+            time.sleep(1)
+        if not src:
+            return False
+        custom_print("APPLYING", "iCIMS: opening the application frame as the page")
+        page.goto(src, wait_until="domcontentloaded")
+        self._scan_until(page, lambda s: bool(s.fields), 30)
+        return True
+
+    @staticmethod
+    def _scan_until(page: Page, cond, seconds: float) -> Snapshot:
+        end = time.time() + seconds
+        while True:
+            snap = FormEngine(page).scan()
+            if cond(snap) or time.time() > end:
+                return snap
+            time.sleep(1.5)
+
+    @staticmethod
+    def _visible_passwords(page: Page) -> list:
+        out = []
+        for fr in page.frames:
+            try:
+                loc = fr.locator("input[type=password]")
+                out += [loc.nth(i) for i in range(loc.count()) if loc.nth(i).is_visible()]
+            except Exception:
+                pass
+        return out
+
+    def _icims_auth_page(self, page: Page, snap: Snapshot) -> bool:
+        """The email step or a sign-in / create-account page, not an application page that also asks for an email."""
+        if self._visible_passwords(page):
+            return True
+        has_email = any(f.kind == "text" and (f.raw.get("inputType") == "email" or re.search(r"e-?mail|login ?name", f.text, re.I)) for f in snap.fields)
+        others = [f for f in snap.fields if f.kind not in ("checkbox",) and not re.search(r"e-?mail", f.text, re.I)]
+        return has_email and not others
+
+    def _icims_signin(self, page: Page) -> Optional[ApplyResult]:
+        email, password = settings.env("ATS_ACCOUNT_EMAIL"), settings.env("ATS_ACCOUNT_PASSWORD")
+        from src.services.cv_data import APPLICATION_PROFILE as p
+        from src.services.form_engine.answerer import CONSENT_RE, DECLARATION_RISK_RE
+        for _ in range(4):
+            snap = self._scan_until(page, lambda s: bool(s.fields), 20)
+            text = " ".join(self._frame_texts(page))
+            if snap.captcha:
+                return self._login_gate(page, "iCIMS (solve the captcha)")
+            asks_code = any(re.search(r"\bcode\b|one[- ]time", f.text, re.I) for f in snap.fields)
+            if ICIMS_CODE_RE.search(text) and (asks_code or not snap.fields):
+                return self._login_gate(page, "iCIMS (enter the code it emailed you)")
+            if not self._icims_auth_page(page, snap):
+                return None                     # signed in: the application itself, for the form runner
+            if not (email and password):
+                return self._login_gate(page, "iCIMS")
+            eng = FormEngine(page)
+            for f in snap.fields:
+                t = f.text
+                if f.kind == "text" and not f.filled:
+                    if f.raw.get("inputType") == "email" or re.search(r"e-?mail|login ?name", t, re.I):
+                        eng.fill(f, email)
+                    elif re.search(r"first name|given name", t, re.I):
+                        eng.fill(f, p["first_name"])
+                    elif re.search(r"last name|surname|family name", t, re.I):
+                        eng.fill(f, p["last_name"])
+                elif f.kind == "checkbox" and (CONSENT_RE.search(t) or re.search(r"\b(i )?accept\b|privacy", t, re.I)) and not DECLARATION_RISK_RE.search(t):
+                    eng.fill(f, "Yes")
+            pws = self._visible_passwords(page)
+            for loc in pws:
+                loc.fill(password)
+            # an auth form's own button; "Submit" only where a password field makes it a sign-in form
+            b = next((b for b in snap.buttons if b.kind == "next" and not b.raw.get("disabled")), None) or \
+                next((b for b in snap.buttons if AUTH_BUTTON_RE.search((b.text or "").strip())), None) or \
+                (next((b for b in snap.buttons if re.fullmatch(r"\s*submit\s*", b.text or "", re.I)), None) if pws else None)
+            if b is None:
+                return self._login_gate(page, "iCIMS (no sign-in button found)")
+            custom_print("APPLYING", f"iCIMS: {'signing in' if len(pws) == 1 else 'creating the account' if pws else 'email step'} -> '{b.text[:30]}'")
+            eng.click(b, wait=4)
+            if ICIMS_BAD_LOGIN_RE.search(" ".join(self._frame_texts(page))):
+                return self._login_gate(page, "iCIMS (sign-in rejected)")
+        return self._login_gate(page, "iCIMS")
+
+    @staticmethod
+    def _frame_texts(page: Page) -> list:
+        out = []
+        for fr in page.frames:
+            try:
+                out.append(fr.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 4000)"))
+            except Exception:
+                pass
+        return out
+
+    def _hook_icims(self, page: Page, job: Dict, eng: FormEngine, snap: Snapshot) -> Optional[ApplyResult]:
+        if self._icims_auth_page(page, snap):
+            return self._icims_signin(page)
+        return self._hook_generic(page, job, eng, snap)
 
     def _prep_seek(self, page: Page, job: Dict) -> Optional[ApplyResult]:
         if self._needs_login(page) or re.search(r"sign in", page.url, re.I):
