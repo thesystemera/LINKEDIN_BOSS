@@ -97,16 +97,18 @@ AIService._generate = out_of_credit
 ai.claude = FakeClaude()
 n = len(calls)
 async def switch():
-    return await ai.structured("job 9", Ping, role="eval", system="CV"), await ai.structured("job 10", Ping, role="forms", system="CV")
-r1, r2 = asyncio.run(switch())
+    return [await ai.structured(f"job {i}", Ping, role=role, system="CV") for i, role in ((9, "eval"), (10, "forms"), (11, "pro"))]
+r1, r2, r3 = asyncio.run(switch())
 kw = ai.claude.messages.kw
 check("Gemini out of credit: the call is answered by Claude", r1 == {"reply": "from claude"}, str(r1))
-check("later calls go straight to Claude", calls[n:] == ["gemini"] and r2 == {"reply": "from claude"}, str(calls[n:]))
-check("Claude: role models, no temperature", [k["model"] for k in kw] == [settings.CLAUDE_MODELS["eval"], settings.CLAUDE_MODELS["forms"]]
+check("later calls go straight to Claude", calls[n:] == ["gemini"] and r2 == r3 == {"reply": "from claude"}, str(calls[n:]))
+check("Claude: role models, no temperature", [k["model"] for k in kw] == [settings.CLAUDE_MODELS[r] for r in ("eval", "forms", "pro")]
       and all("temperature" not in k for k in kw), str([k["model"] for k in kw]))
 check("Claude: cached system prompt, closed schema", kw[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
       and kw[0]["output_config"]["format"]["schema"]["additionalProperties"] is False)
-check("Claude: thinking off (Haiku 'disabled', Sonnet 'between_tools')", all(
-      k["thinking"]["type"] == ("disabled" if "haiku" in k["model"] else "between_tools") for k in kw))
-check("usage line reports Claude calls and cost", "Claude: 2 calls" in ai.usage_line() and "$" in ai.usage_line(), ai.usage_line())
+off = lambda m: "disabled" if "haiku" in m else "between_tools" if "sonnet" in m else None
+check("Claude: thinking off where the model allows it (Opus: none sent, extra room)", all(
+      (k.get("thinking") or {}).get("type") == off(k["model"]) for k in kw) and kw[2]["max_tokens"] > kw[0]["max_tokens"],
+      str([(k["model"], k.get("thinking"), k["max_tokens"]) for k in kw]))
+check("usage line reports Claude calls and cost", "Claude: 3 calls" in ai.usage_line() and "$" in ai.usage_line(), ai.usage_line())
 print("\nALL PASS" if not FAIL else f"\n{len(FAIL)} FAILED: {FAIL}")

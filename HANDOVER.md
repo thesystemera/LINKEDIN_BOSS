@@ -10,15 +10,15 @@
 ## AI and cost
 
 - **Roles** (`settings.MODELS` for Gemini, `settings.CLAUDE_MODELS` for Claude):
-  - `eval`: Gemini Flash / Claude Sonnet 5.5. A side-by-side check on 7 real jobs found Haiku rejected good remote fits; Sonnet is about 1 cent per job.
-  - `forms`, `lite`, `vision`: Gemini Flash(-Lite) / Claude Haiku 5.5.
-  - `pro` (cover letters, long answers, CV variants): Gemini Pro / Claude Sonnet 5.5.
+  - `eval`, `forms`, `lite`, `vision`: Gemini Flash(-Lite) / Claude Sonnet 5.5. A side-by-side check on 7 real jobs found Haiku rejected good remote fits; Sonnet is about 1 cent per job evaluation.
+  - `pro` (cover letters, long answers, CV variants): Gemini Pro / Claude Opus 5.5, about 8 cents per cover letter. Opus always thinks (no thinking setting is sent; effort keeps it short) and gets 4,000 extra output tokens for it.
 - **Cost layers, both providers:**
   - identical requests come from the `ai_cache` table;
   - the stable system prompt (instructions + CV) is cached: a Gemini context cache, or a Claude `cache_control` breakpoint (74% of input at the cached rate in testing);
   - thinking is low or off.
   - The run prints a usage line at the end, with a dollar estimate for Claude.
-- **Claude rules:** the 5.5 models reject `temperature` (it is never sent). JSON output goes through `output_config.format`; a schema Claude rejects falls back to plain JSON mode. Thinking is off: `disabled` on Haiku, `between_tools` on Sonnet.
+- **Claude rules:** the 5.5 models reject `temperature` (it is never sent). JSON output goes through `output_config.format`; a schema Claude rejects falls back to plain JSON mode. Thinking is off where the model allows it: `disabled` on Haiku, `between_tools` on Sonnet.
+- **CV facts:** the PLAiR lines in `CV_FULL_TEXT` were corrected on 24 Oct (Gemini/DeepSeek, ~33k embeddings with Annoy, 75+ services). The uploaded CVs in `Data/` still carry the old claims (Claude, pgvector 1M+) until the tailored CVs are switched on.
 - `CONFIDENCE_THRESHOLD = 40`, the evaluation prompt's own apply rule. Claude scores lower and more realistically than Gemini did, so 50 would have cut volume.
 
 ## Biggest gaps (next work, ranked by lost applications since 23 Oct)

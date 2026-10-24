@@ -352,12 +352,12 @@ class AIService(SingletonService):
         fresh, read = int(usage.input_tokens or 0), int(getattr(usage, "cache_read_input_tokens", 0) or 0)
         write = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
         u = {"prompt": fresh + read + write, "cached": read, "cache_write": write, "output": int(usage.output_tokens or 0)}
-        p_in, p_out = settings.CLAUDE_PRICES.get(model, (2.00, 10.00))
+        p_in, p_out, p_read = settings.CLAUDE_PRICES.get(model, (4.00, 20.00, 0.20))
         cu = self.claude_usage
         cu["calls"] += 1
         for k, v in u.items():
             cu[k] += v
-        cu["usd"] += ((fresh + 0.1 * read + 1.25 * write) * p_in + u["output"] * p_out) / 1e6
+        cu["usd"] += ((fresh + 1.25 * write) * p_in + read * p_read + u["output"] * p_out) / 1e6
         return u
 
     async def _claude(self, role: str, prompt: str, system: Optional[str], max_tokens: int,
@@ -379,11 +379,12 @@ class AIService(SingletonService):
         models = [self._claude_model(role), settings.CLAUDE_FALLBACK_MODEL]
         last_err = None
         for model in dict.fromkeys(m for m in models if m not in self.dead_models):
-            # Haiku accepts thinking "disabled"; Sonnet 5.5 rejects it and calls the off setting "between_tools"
-            thinking = {"type": "disabled"} if "haiku" in model else {"type": "between_tools"}
+            # thinking off: Haiku takes "disabled", Sonnet 5.5 "between_tools"; Opus 5.5 always thinks, its effort sets how much
+            thinking = {"type": "disabled"} if "haiku" in model else {"type": "between_tools"} if "sonnet" in model else None
             try:
                 t0 = time.time()
-                r = await self.claude.messages.create(model=model, thinking=thinking, **kw)
+                extra = {"thinking": thinking} if thinking else {"max_tokens": max_tokens + 4000}  # room for Opus's own thinking
+                r = await self.claude.messages.create(model=model, **{**kw, **extra})
             except anthropic.NotFoundError as e:
                 custom_print("WARNING", f"Model {model} unavailable (404) - trying next")
                 self.dead_models.add(model)

@@ -26,12 +26,13 @@ class Settings:
     # ── Claude (key: .env CLAUDE_API_KEY) ──
     # auto: Gemini first, Claude for the rest of the run once Gemini is out of credit or has no key | gemini | claude
     AI_PROVIDER = "auto"
-    # eval on Sonnet: Haiku rejected good remote fits in a side-by-side check; Sonnet is about 1 cent per job
-    CLAUDE_MODELS = {"eval": "claude-sonnet-5-5", "forms": "claude-haiku-5-5", "pro": "claude-sonnet-5-5",
-                     "lite": "claude-haiku-5-5", "vision": "claude-haiku-5-5"}
-    CLAUDE_FALLBACK_MODEL = "claude-haiku-5-5"
-    # USD per million tokens (input, output); cache reads bill 0.1x input, 5-minute cache writes 1.25x
-    CLAUDE_PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.00, 10.00)}
+    # Sonnet everywhere (Haiku rejected good remote fits in a side-by-side check), Opus for cover letters and long answers
+    CLAUDE_MODELS = {"eval": "claude-sonnet-5-5", "forms": "claude-sonnet-5-5", "pro": "claude-opus-5-5",
+                     "lite": "claude-sonnet-5-5", "vision": "claude-sonnet-5-5"}
+    CLAUDE_FALLBACK_MODEL = "claude-sonnet-5-5"
+    # USD per million tokens (input, output, cache read); 5-minute cache writes bill 1.25x input
+    CLAUDE_PRICES = {"claude-haiku-5-5": (0.10, 0.50, 0.01), "claude-sonnet-5-5": (2.00, 10.00, 0.20),
+                     "claude-opus-5-5": (4.00, 20.00, 0.20)}
 
     # ── AI cost controls (same approach as deepPBR) ──
     THINKING_LEVEL = {"eval": "low", "forms": "low", "pro": "low", "lite": "low", "vision": "low"}  # minimal | low | medium | high

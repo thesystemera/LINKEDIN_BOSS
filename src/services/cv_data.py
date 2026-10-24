@@ -245,10 +245,10 @@ Built production v1 (May-Nov 2024) which secured board-level interest from indus
 When Spotify deprecated their API in November 2024, pivoted to financial analytics before returning to rebuild PLAiR from the ground up (Oct-Dec 2025) as a fully independent platform with multi-AI orchestration.
 The Product: A fully autonomous, AI-driven radio platform that generates personalized, localized, and interactive audio streams for users.
 Unlike traditional streaming services, PLAiR adapts content in real-time based on location, time of day, and listener preferences—creating a unique "radio station" for each user.
-Production Architecture: 60+ microservices backend with strict DRY principles, comprehensive error handling, and security-first design.
-7-layer intelligent caching (Redis, CDN, Local) achieving 60-70% cost reduction. Semantic vector search (pgvector) serving 1M+ embeddings at <200ms latency.
+Production Architecture: 75+ documented services (about 116,000 lines of Python and JavaScript, built solo) with strict DRY principles, comprehensive error handling, and security-first design.
+7-layer caching (Redis, CDN, local; estimated 60-70% AI cost reduction) and a semantic TTS clip cache cutting synthesis calls by about 70%. Semantic search over ~33,000 track embeddings using Annoy and numpy.
 Containerized deployment with rate limiting, auth middleware, and fault-tolerant architecture.
-Multi-AI Orchestration: Integrated five AI systems (Claude for LLM, ElevenLabs for TTS, Whisper for STT, Demucs for source separation, Suno for music generation) with intelligent 7-layer caching architecture achieving 60-70% operational cost reduction.
+Multi-AI Orchestration: Gemini and DeepSeek LLMs with per-task routing and per-user cost tracking, faster-whisper for STT, Demucs/RoFormer for source separation, Suno and Stable Audio Open for music, and self-hosted TTS (Chatterbox-Turbo with his own batched CUDA-graph decoder) after replacing ElevenLabs.
 Advanced Frontend: Implemented GLSL shader-based audio visualizations, dual-buffer audio engine with gapless crossfading, 3D parallax artwork rendering (AI-generated depth maps), and multi-device WebSocket synchronization with <30ms latency.
 Commercial Validation: Secured board-level interest from industry titans including Shaquille O'Neal and Terry Ellis.
 Development was impacted by Spotify's API deprecation, requiring platform pivot.
