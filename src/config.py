@@ -182,7 +182,7 @@ class Settings:
 
     # Tailored CV per job type (python src/main.py cvs): written once by the pro model from both CVs + cv_data,
     # every number/company checked against the sources, cached in data/cv_variants/. Used only when switched on.
-    USE_TAILORED_CVS = False
+    USE_TAILORED_CVS = True
     CV_VARIANTS = {
         "applied_ai": "Applied AI / LLM / ML engineer roles: production AI platforms, agents and LLM orchestration, his own trained models, inference cost, shipping AI to production",
         "fde": "Forward-deployed / solutions / customer engineering: building and deploying AI systems end to end for real users, integration, working with stakeholders and partners, speaking",
