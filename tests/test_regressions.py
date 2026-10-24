@@ -278,6 +278,27 @@ with sync_playwright() as p:
     check("country dropdown -> New Zealand", by_q["Country *"] is not None and by_q["Country *"].value == "New Zealand", str(by_q["Country *"]))
     check("state list without NZ is left to the bank / AI, not forced", by_q["State/Region"] is None or by_q["State/Region"].source != "profile", str(by_q["State/Region"]))
 
+    # Rippling (Copado, Oct 2026): upload hint is not a file; each site's own "decline" wording
+    pg.set_content("""<form><div data-testid="field"><span id="l8">CV</span><span>*</span><div><div id="fi10">Total 0 file selected</div>
+      <label data-testid="resume" aria-labelledby="fi10 l8"><input accept=".doc,.docx,.pdf" data-testid="input-resume" type="file">
+      <button type="button"><span>Drop or select (.doc / .docx / .pdf)</span></button></label></div></div>
+      <div><label for="cl">Cover letter</label><input id="cl" type="file"><div>Simon_CV.pdf</div></div></form>""")
+    rp_files = [f for f in FormEngine(pg).scan().fields if f.kind == "file"]
+    check("Rippling: '(.doc / .docx / .pdf)' hint and 'Total 0 file selected' mean no file yet", rp_files and not rp_files[0].filled, str([(f.text[:30], f.value) for f in rp_files]))
+    check("a real file name beside an upload still counts as attached", len(rp_files) > 1 and rp_files[1].value == "Simon_CV.pdf", str([(f.text[:30], f.value) for f in rp_files]))
+    check("decline answers pick each site's decline wording", match_option("Choose not to disclose", ["Male", "Female", "I don't wish to answer"]) == 2
+          and match_option("Decline to self-identify", ["Yes", "No", "Prefer not to say"]) == 2 and match_option("No", ["Yes", "No", "Prefer not to say"]) == 1)
+
+    # Ashby (Dovetail, Oct 2026): the submit button spins (disabled) for a while before the confirmation
+    pg.set_content("""<form><label for="nm">Full name</label><input id="nm" required>
+      <button type="submit" id="sb">Submit Application</button></form>
+      <script>document.querySelector('form').onsubmit = e => { e.preventDefault(); const b = document.getElementById('sb');
+        b.disabled = true; b.innerHTML = '<span class="spinner"></span> Submit Application'; window.__clicks = (window.__clicks || 0) + 1;
+        setTimeout(() => { document.body.innerHTML = '<h2>Thank you for applying</h2><p>Your application was successfully submitted.</p>'; }, 14000); };</script>""")
+    res_busy = FormRunner().run(pg, job, "ashby", auto_submit=True)
+    check("Ashby: waits out a busy submit button for the confirmation", res_busy.status == "success" and pg.evaluate("() => window.__clicks") == 1,
+          f"{res_busy.status} {res_busy.error} clicks={pg.evaluate('() => window.__clicks')}")
+
     # iCIMS behind a Jibe careers site (GitHub, Oct 2026): Apply -> iCIMS page with a slow iframe -> email + privacy
     # -> new account -> application. Test credentials only; the fake hosts are served locally by page.route.
     import os

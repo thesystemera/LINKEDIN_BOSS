@@ -165,6 +165,7 @@ class Settings:
     MAX_VALIDATION_RETRIES = 1
     RETRY_MAX_AGE_DAYS = 14
     MAX_FORM_STEPS = 25
+    SUBMIT_WAIT_SECONDS = 60            # keep waiting for the confirmation while the submit button shows it is busy
     EXTERNAL_APPLY = True
     # auto-submit allowed per application system when MANUAL_APPROVAL is off; others stop for you before submit
     EXTERNAL_AUTO_SUBMIT = {

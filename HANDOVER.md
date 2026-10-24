@@ -36,6 +36,9 @@ Fixed on 24 Oct with fixture tests (`tests/test_regressions.py`):
 - JobAdder phone boxes: the scanner took select2's hidden flag-picker inputs for the phone field.
 - Location dropdowns without New Zealand: the bot now picks "Other …"; a state list without NZ goes to the bank / AI.
 - Fuzzy option matching turned "New Zealand" into "Netherlands".
+- Ashby (Dovetail): the bot gave up ~9 s after Submit while the button was still spinning; it now waits while the submit button stays disabled (`SUBMIT_WAIT_SECONDS`).
+- Rippling (Copado, Abby Health): the upload hint "(.doc / .docx / .pdf)" was read as an attached CV, so the required CV was never uploaded.
+- Decline answers now match each site's own wording ("I don't wish to answer", "Prefer not to say").
 
 ## Continuing in another session
 

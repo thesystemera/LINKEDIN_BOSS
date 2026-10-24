@@ -444,8 +444,10 @@
       f.accept = el.getAttribute('accept') || '';
       f.hasFile = !!(el.files && el.files.length);
       const ctxText = container ? txt(container) : '';
-      const m = ctxText.match(/(?:^|\s)([\w\-()]+(?:\.[\w\-()]+)*\.(pdf|docx?|txt|rtf|odt))(?=\s|$)/i);
-      f.value = f.hasFile ? 'attached' : (m ? m[1] : '');
+      // a real file name starts with a letter or digit: hints like "Drop or select (.doc / .docx / .pdf)" are not files
+      const m = ctxText.match(/(?:^|\s)(\w[\w\-()]*(?:\.[\w\-()]+)*\.(pdf|docx?|txt|rtf|odt))(?=\s|$)/i);
+      const none = /\b(total )?0 files? (selected|attached|uploaded)|no file (chosen|selected)/i.test(ctxText);
+      f.value = f.hasFile ? 'attached' : (m && !none ? m[1] : '');
     }
     fields.push(f);
   }

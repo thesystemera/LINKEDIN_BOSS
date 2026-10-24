@@ -2,6 +2,10 @@ import re
 import difflib
 from typing import List, Optional, Tuple
 
+DECLINE_RE = re.compile(r"(decline|prefer not|don'?t wish|do not wish|not wish to|not to (say|disclose|answer|identify)|rather not|choose not|i don'?t want|no answer|not specified)", re.I)
+# answers that mean "decline" (narrower than DECLINE_RE, which also has to recognise the many option wordings)
+DECLINE_ANSWER_RE = re.compile(r"\b(decline|prefer not|choose not|rather not|(do not|don'?t) wish|not to (say|disclose|answer|identify))\b", re.I)
+
 YES = {"yes", "y", "true", "1", "agree", "i agree", "accept", "i accept", "confirm", "i confirm", "checked", "consent", "i consent"}
 NO = {"no", "n", "false", "0", "disagree", "decline", "unchecked"}
 
@@ -79,6 +83,11 @@ def match_option(answer, options: List[str], fuzzy_cutoff: float = 0.6) -> Optio
     for i, o in enumerate(normed):
         if o == a:
             return i
+    # each site words "decline" its own way: "Choose not to disclose", "I don't wish to answer", "Decline to self-identify"
+    if DECLINE_ANSWER_RE.search(str(answer)):
+        for i, o in enumerate(options):
+            if DECLINE_RE.search(o):
+                return i
     tv = truthy(answer)
     if tv is not None and a in YES | NO:
         for i, o in enumerate(normed):

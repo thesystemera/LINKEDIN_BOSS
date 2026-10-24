@@ -12,11 +12,10 @@ from src.services.answer_bank import AnswerBank, CHOICE_KINDS
 from src.services.cv_data import CV_SUPPLEMENTARY, CV_FULL_TEXT, APPLICATION_PROFILE
 from src.services.documents import file_purpose, cv_path, cv_text, write_cover_letter
 from src.services.form_engine.engine import Field
-from src.services.form_engine.matching import match_option, norm
+from src.services.form_engine.matching import match_option, norm, DECLINE_RE
 from src.utils.logger import custom_print
 
 EEO_RE = re.compile(r"\b(gender|sex\b|race|racial|ethnic|ethnicity|hispanic|latin[oa]|veteran|disabilit|sexual orientation|transgender|pronoun|aboriginal|torres strait|lgbt|religio|caste|marital)", re.I)
-DECLINE_RE = re.compile(r"(decline|prefer not|don'?t wish|do not wish|not wish to|not to (say|disclose|answer|identify)|rather not|choose not|i don'?t want|no answer|not specified)", re.I)
 # LinkedIn's work-history / education editors hold the candidate's real history (imported from the profile): never guessed
 PROFILE_ENTRY_RE = re.compile(r"edit (experience|education)|dates of employment|i currently work here|dates attended|add (work )?experience|add education", re.I)
 # employer policies on using AI to apply: the application is AI-assisted, so agreeing to them would be untrue

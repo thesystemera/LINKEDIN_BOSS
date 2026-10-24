@@ -187,17 +187,26 @@ class FormRunner:
         return None
 
     def _detect_submitted(self, engine: FormEngine, page: Page, before_url: str) -> bool:
-        for _ in range(4):
+        """Watches for the confirmation for about 6 s, longer while the submit button stays disabled (Ashby keeps a
+        spinner on it while the CV uploads and its checks run), up to SUBMIT_WAIT_SECONDS."""
+        end, polls = time.time() + settings.SUBMIT_WAIT_SECONDS, 0
+        while True:
             time.sleep(1.5)
+            polls += 1
+            busy = False
             try:
                 s = engine.scan()
+                if s.success:
+                    return True
+                busy = any(b.kind == "submit" and b.disabled for b in s.buttons)
             except Exception:
-                continue
-            if s.success:
-                return True
+                pass
             if re.search(r"thank|confirmation|success|submitted|complete", page.url or "", re.I) and page.url != before_url:
                 return True
-        return False
+            if (polls >= 4 and not busy) or time.time() > end:
+                return False
+            if busy and polls == 4:
+                custom_print("APPLYING", "Submit button still busy - waiting for the site to finish")
 
     def run(self, page: Page, job: Dict, channel: str, root_selector: Optional[str] = None, auto_submit: bool = True,
             max_steps: int = None, before_step: Callable[[FormEngine, Snapshot], Optional[ApplyResult]] = None,
