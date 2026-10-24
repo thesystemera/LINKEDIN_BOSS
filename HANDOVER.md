@@ -19,6 +19,7 @@
   - The run prints a usage line at the end, with a dollar estimate for Claude.
 - **Claude rules:** the 5.5 models reject `temperature` (it is never sent). JSON output goes through `output_config.format`; a schema Claude rejects falls back to plain JSON mode. Thinking is off where the model allows it: `disabled` on Haiku, `between_tools` on Sonnet.
 - **CV facts:** the PLAiR lines in `CV_FULL_TEXT` were corrected on 24 Oct (Gemini/DeepSeek, ~33k embeddings with Annoy, 75+ services). Since the same day the bot uploads the tailored CVs (`USE_TAILORED_CVS = True`, `data/cv_variants/<lane>/Simon_Che_de_Boer_CV.docx`, approved by Simon); the older CVs in `Data/` still carry the old claims (Claude, pgvector 1M+) and are only a fallback.
+  Rewritten the same afternoon around one message, at Simon's request: he builds complete, secure, polished products single-handed. No latency figures, estimated or percentage savings or sentiment accuracy; only checkable facts (live products, what he built alone, models trained, lines and tests, Steam reviews, grants). To change a CV, edit `data/cv_variants/<lane>/cv.json` and run `python src/main.py cvs` (renders and fact-checks).
 - `CONFIDENCE_THRESHOLD = 40`, the evaluation prompt's own apply rule. Claude scores lower and more realistically than Gemini did, so 50 would have cut volume.
 
 ## Biggest gaps (next work, ranked by lost applications since 23 Oct)

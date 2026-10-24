@@ -33,7 +33,8 @@ AI_TELLS = ["excited to", "I am excited", "aligns with", "align with", "leverage
             "in today's", "fast-paced", "dynamic", "unique blend", "testament to", "I am confident", "commitment to", "deeply", "seamless", "robust"]
 WRITING_RULES = f"""WRITING (it must read like the candidate wrote it, not a model)
 - Write like a senior engineer talking to another engineer: plain words, short sentences, contractions are fine, New Zealand English, first person.
-- Specific beats general: name the real project, what he built and one real number from the data. Lead with deepPBR.io (current work) when it fits the job.
+- Sell what an engineering manager cares about: he builds complete products on his own, front end to back end to deployment, with sign-in, payments, tests and polish. Name the real project, what he built in it and what is live. Lead with deepPBR.io (current work) when it fits the job.
+- Numbers only when concrete and checkable (lines of code, automated tests, models he trained, Steam reviews, grants, years). Never quote latency, speed-ups, accuracy, or estimated or percentage savings, even where the data mentions them.
 - Never use: {', '.join(HYPE_WORDS + AI_TELLS)}. No buzzword lists, no corporate filler, no summary sentence at the end.
 - Plain punctuation only: no em or en dashes, no curly quotes, no semicolon chains, no bullet points unless asked.
 - Never claim he read, watched, used, attended or spoke to something (a company's product, blog, video, event, people) unless the data says so. If asked about it, say what in it connects to his work, as interest, not as something he did."""
@@ -328,7 +329,7 @@ FIELDS:
 {WRITING_RULES}
 
 STYLE
-- Tie 2-3 real projects/skills from the data directly to what this job needs. Use real numbers from the data only. No claims beyond the data.
+- Tie 2-3 real projects/skills from the data directly to what this job needs: what he built, alone, and what is live. No claims beyond the data.
 - 90-180 words per answer unless maxlength is smaller (stay under maxlength characters).
 - {"Do not mention that this application was automated or AI-assisted." if not settings.MENTION_APPLICATION_BOT else "You may mention the candidate built his own AI application tooling if relevant."}
 - No greeting or sign-off unless the field is a cover letter. No placeholders.
@@ -352,7 +353,7 @@ QUESTIONS:
         region = job_region(job)
         system = f"""Write a cover letter for the job in the prompt. First person, New Zealand English, 220-320 words.
 Open with "Dear Hiring Team," and close with "Kind regards,\\nSimon Che de Boer".
-Structure: why this role (1-2 sentences tied to the listing), 2 short paragraphs mapping concrete evidence from the data to the job's main requirements, availability and location (Auckland, NZ; open to remote/relocation where relevant), close.
+Structure: why this role (1-2 sentences tied to the listing); 2 short paragraphs on what he has built end to end that this job needs (the product, the parts he built alone, what is live) and one hard problem he solved that is relevant; availability and location (Auckland, NZ; open to remote/relocation where relevant); close.
 No claims beyond the data. {"Do not mention that this application was automated or AI-assisted." if not settings.MENTION_APPLICATION_BOT else ""}
 
 {WRITING_RULES}
