@@ -104,7 +104,7 @@ check("Gemini out of credit: the call is answered by Claude", r1 == {"reply": "f
 check("later calls go straight to Claude", calls[n:] == ["gemini"] and r2 == r3 == {"reply": "from claude"}, str(calls[n:]))
 check("Claude: role models, no temperature", [k["model"] for k in kw] == [settings.CLAUDE_MODELS[r] for r in ("eval", "forms", "pro")]
       and all("temperature" not in k for k in kw), str([k["model"] for k in kw]))
-check("Claude: cached system prompt, closed schema", kw[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
+check("Claude: system prompt cached for 1 hour, closed schema", kw[0]["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
       and kw[0]["output_config"]["format"]["schema"]["additionalProperties"] is False)
 off = lambda m: "disabled" if "haiku" in m else "between_tools" if "sonnet" in m else None
 check("Claude: thinking off where the model allows it (Opus: none sent, extra room)", all(

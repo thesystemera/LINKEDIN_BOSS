@@ -14,7 +14,7 @@
   - `pro` (cover letters, long answers, CV variants): Gemini Pro / Claude Opus 5.5, about 8 cents per cover letter. Opus always thinks (no thinking setting is sent; effort keeps it short) and gets 4,000 extra output tokens for it.
 - **Cost layers, both providers:**
   - identical requests come from the `ai_cache` table;
-  - the stable system prompt (instructions + CV) is cached: a Gemini context cache, or a Claude `cache_control` breakpoint (74% of input at the cached rate in testing);
+  - the stable system prompt (instructions + CV, one per job type) is cached: a Gemini context cache, or a Claude `cache_control` breakpoint with a 1-hour TTL (`CLAUDE_CACHE_TTL`). Applications are 5-10 minutes apart, so the default 5-minute entry expired before every form call; with 1 hour, the second call on a job type reads ~11k tokens from cache;
   - thinking is low or off.
   - The run prints a usage line at the end, with a dollar estimate for Claude.
 - **Claude rules:** the 5.5 models reject `temperature` (it is never sent). JSON output goes through `output_config.format`; a schema Claude rejects falls back to plain JSON mode. Thinking is off where the model allows it: `disabled` on Haiku, `between_tools` on Sonnet.

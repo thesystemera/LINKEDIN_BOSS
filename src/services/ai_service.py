@@ -357,7 +357,8 @@ class AIService(SingletonService):
         cu["calls"] += 1
         for k, v in u.items():
             cu[k] += v
-        cu["usd"] += ((fresh + 1.25 * write) * p_in + read * p_read + u["output"] * p_out) / 1e6
+        w = 2.0 if settings.CLAUDE_CACHE_TTL == "1h" else 1.25
+        cu["usd"] += ((fresh + w * write) * p_in + read * p_read + u["output"] * p_out) / 1e6
         return u
 
     async def _claude(self, role: str, prompt: str, system: Optional[str], max_tokens: int,
@@ -375,7 +376,8 @@ class AIService(SingletonService):
             out_cfg["format"] = {"type": "json_schema", "schema": json_schema}
         kw = dict(max_tokens=max_tokens, output_config=out_cfg, messages=[{"role": "user", "content": content}])
         if system:
-            kw["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+            cc = {"type": "ephemeral", **({"ttl": "1h"} if settings.CLAUDE_CACHE_TTL == "1h" else {})}
+            kw["system"] = [{"type": "text", "text": system, "cache_control": cc}]
         models = [self._claude_model(role), settings.CLAUDE_FALLBACK_MODEL]
         last_err = None
         for model in dict.fromkeys(m for m in models if m not in self.dead_models):

@@ -30,7 +30,9 @@ class Settings:
     CLAUDE_MODELS = {"eval": "claude-sonnet-5-5", "forms": "claude-sonnet-5-5", "pro": "claude-opus-5-5",
                      "lite": "claude-sonnet-5-5", "vision": "claude-sonnet-5-5"}
     CLAUDE_FALLBACK_MODEL = "claude-sonnet-5-5"
-    # USD per million tokens (input, output, cache read); 5-minute cache writes bill 1.25x input
+    # The bot spaces applications 5-10 minutes apart, longer than the default 5-minute cache: keep system prompts 1 hour
+    CLAUDE_CACHE_TTL = "1h"             # "1h" (writes bill 2x input) | "5m" (writes bill 1.25x)
+    # USD per million tokens (input, output, cache read)
     CLAUDE_PRICES = {"claude-haiku-5-5": (0.10, 0.50, 0.01), "claude-sonnet-5-5": (2.00, 10.00, 0.20),
                      "claude-opus-5-5": (4.00, 20.00, 0.20)}
 
